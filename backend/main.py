@@ -43,8 +43,6 @@ def startup():
     init_db()
 
 
-# ── Phone registration ──────────────────────────────────────────────────────
-
 @app.post("/api/register")
 async def register(request: Request):
     data = await request.json()
@@ -90,8 +88,6 @@ async def status(request: Request):
     }
 
 
-# ── Google OAuth (Gmail only) ───────────────────────────────────────────────
-
 @app.get("/auth/google/start")
 async def google_start(request: Request):
     phone = request.session.get("phone")
@@ -125,7 +121,6 @@ async def google_callback(request: Request, code: str = None, state: str = None,
             "grant_type": "authorization_code",
         })
     tokens = resp.json()
-    # Store in the format expected by gmail.py / google-auth library
     gmail_credentials = {
         "token": tokens.get("access_token"),
         "refresh_token": tokens.get("refresh_token"),
@@ -139,8 +134,6 @@ async def google_callback(request: Request, code: str = None, state: str = None,
     return RedirectResponse(f"{FRONTEND_URL}?connected=google")
 
 
-# ── Google Calendar iCal URL ────────────────────────────────────────────────
-
 @app.post("/api/ical")
 async def save_ical(request: Request):
     data = await request.json()
@@ -151,7 +144,6 @@ async def save_ical(request: Request):
     if not ical_url:
         return JSONResponse({"error": "iCal URL required"}, status_code=400)
 
-    # Validate the URL is reachable and parses as iCal
     try:
         import urllib.request
         with urllib.request.urlopen(ical_url, timeout=10) as resp:
@@ -164,8 +156,6 @@ async def save_ical(request: Request):
     upsert_user(phone, ical_url=ical_url)
     return {"ok": True}
 
-
-# ── Canvas ──────────────────────────────────────────────────────────────────
 
 @app.post("/api/canvas/token")
 async def canvas_token(request: Request):
@@ -190,7 +180,6 @@ async def canvas_token(request: Request):
     return {"ok": True}
 
 
-# Canvas OAuth (only works if your school has issued you a developer key)
 @app.get("/auth/canvas/start")
 async def canvas_oauth_start(request: Request, domain: str):
     phone = request.session.get("phone")
@@ -226,14 +215,12 @@ async def canvas_oauth_callback(request: Request, code: str = None, state: str =
     return RedirectResponse(f"{FRONTEND_URL}?connected=canvas")
 
 
-# ── Slack OAuth ─────────────────────────────────────────────────────────────
-
 @app.get("/auth/slack/start")
 async def slack_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
         return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
-    from urllib.parse import urlencode, quote
+    from urllib.parse import urlencode
     return RedirectResponse(
         f"https://slack.com/oauth/v2/authorize?"
         + urlencode({
@@ -268,16 +255,24 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
     return RedirectResponse(f"{FRONTEND_URL}?connected=slack")
 
 
-# ── iMessage bot (called by bridge.mjs) ────────────────────────────────────
+_recent: dict = {}
 
 @app.post("/api/bot/message")
 async def bot_message(request: Request):
+    import time
     import agent as agent_mod
     data = await request.json()
     phone = data.get("phone", "").strip()
     text = data.get("text", "").strip()
     if not phone or not text:
         return JSONResponse({"error": "phone and text required"}, status_code=400)
+
+    key = (phone, text)
+    now = time.time()
+    if now - _recent.get(key, 0) < 5:
+        return JSONResponse({"reply": None})
+    _recent[key] = now
+
     user = get_user(phone)
     if not user:
         upsert_user(phone)
