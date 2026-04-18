@@ -53,6 +53,7 @@ def init_db() -> None:
             "onboarding_step": "TEXT DEFAULT 'start'",
             "preferences": "TEXT DEFAULT '{}'",
         }
+        migrations["slack_workspaces"] = "TEXT DEFAULT '[]'"
         for col, col_def in migrations.items():
             if col not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
@@ -151,3 +152,23 @@ def set_preference(phone: str, key: str, value) -> None:
     prefs = user.get("preferences", {}) if user else {}
     prefs[key] = value
     upsert_user(phone, preferences=prefs)
+
+
+def get_slack_workspaces(phone: str) -> list:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT slack_workspaces FROM users WHERE phone = ?", (phone,)
+        ).fetchone()
+    if not row or not row[0]:
+        return []
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return []
+
+
+def add_slack_workspace(phone: str, token: str, team_id: str, team_name: str) -> None:
+    workspaces = get_slack_workspaces(phone)
+    workspaces = [w for w in workspaces if w.get("team_id") != team_id]
+    workspaces.append({"token": token, "team_id": team_id, "team_name": team_name})
+    upsert_user(phone, slack_workspaces=json.dumps(workspaces))
