@@ -27,6 +27,22 @@ def init_db() -> None:
                 preferences       TEXT DEFAULT '{}'
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS context_cache (
+                phone      TEXT PRIMARY KEY,
+                context    TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS slack_workspaces (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone     TEXT NOT NULL,
+                token     TEXT NOT NULL,
+                team_id   TEXT NOT NULL,
+                team_name TEXT NOT NULL
+            )
+        """)
         # Migrate existing tables by adding any missing columns
         existing = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
         migrations = {
@@ -90,6 +106,44 @@ def get_preference(phone: str, key: str, default=None):
     if not user:
         return default
     return user.get("preferences", {}).get(key, default)
+
+
+def get_cached_context(phone: str, ttl: float = 300) -> Optional[str]:
+    import time
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT context, updated_at FROM context_cache WHERE phone = ?", (phone,)
+        ).fetchone()
+    if row and (time.time() - row["updated_at"]) < ttl:
+        return row["context"]
+    return None
+
+
+def set_cached_context(phone: str, context: str) -> None:
+    import time
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO context_cache (phone, context, updated_at) VALUES (?, ?, ?)",
+            (phone, context, time.time()),
+        )
+        conn.commit()
+
+
+def add_slack_workspace(phone: str, token: str, team_id: str, team_name: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO slack_workspaces (phone, token, team_id, team_name) VALUES (?, ?, ?, ?)",
+            (phone, token, team_id, team_name),
+        )
+        conn.commit()
+
+
+def get_slack_workspaces(phone: str):
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT token, team_id, team_name FROM slack_workspaces WHERE phone = ?", (phone,)
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def set_preference(phone: str, key: str, value) -> None:

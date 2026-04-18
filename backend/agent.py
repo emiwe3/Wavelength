@@ -3,6 +3,8 @@ agent.py — Claude-powered conversational agent with calendar write tool use.
 """
 
 import os
+import time
+import threading
 from collections import defaultdict
 from typing import Any, Dict, List
 
@@ -10,6 +12,7 @@ import anthropic
 
 import context as ctx_mod
 import calendar_write
+import db as db_mod
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
@@ -79,15 +82,36 @@ TOOLS = [
 ]
 
 _history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+CONTEXT_TTL = 300  # 5 minutes
+
+
+def _refresh_context(user: Dict[str, Any]) -> None:
+    try:
+        ctx = ctx_mod.get_student_context(user)
+        db_mod.set_cached_context(user["phone"], ctx)
+    except Exception:
+        pass
+
+
+def _get_context(user: Dict[str, Any]) -> str:
+    phone = user["phone"]
+    cached = db_mod.get_cached_context(phone, ttl=CONTEXT_TTL)
+    if cached:
+        # Refresh in background so next call is fresh
+        threading.Thread(target=_refresh_context, args=(user,), daemon=True).start()
+        return cached
+    # No cache — fetch synchronously then store
+    try:
+        ctx = ctx_mod.get_student_context(user)
+        db_mod.set_cached_context(phone, ctx)
+        return ctx
+    except Exception as exc:
+        return f"[Could not load student context: {exc}]"
 
 
 def reply(user: Dict[str, Any], message: str) -> str:
     phone = user["phone"]
-
-    try:
-        student_context = ctx_mod.get_student_context(user)
-    except Exception as exc:
-        student_context = f"[Could not load student context: {exc}]"
+    student_context = _get_context(user)
 
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(context=student_context)
 
