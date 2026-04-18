@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
-from db import init_db, upsert_user, get_user
+from db import init_db, upsert_user, get_user, add_slack_workspace, get_slack_workspaces
 
 load_dotenv()
 
@@ -70,6 +70,7 @@ async def status(request: Request):
         "ical": bool(user.get("ical_url")),
         "canvas": bool(user.get("canvas_token")),
         "slack": bool(user.get("slack_token")),
+        "slack_workspaces": get_slack_workspaces(phone),
     }
 
 
@@ -239,6 +240,10 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
         })
     data = resp.json()
     user_token = data.get("authed_user", {}).get("access_token")
+    team_id = data.get("team", {}).get("id", "")
+    team_name = data.get("team", {}).get("name", "Unknown Workspace")
+    if user_token and team_id:
+        add_slack_workspace(phone, user_token, team_id, team_name)
     upsert_user(phone, slack_token=user_token)
     request.session["phone"] = phone
     return RedirectResponse(f"{FRONTEND_URL}?connected=slack")

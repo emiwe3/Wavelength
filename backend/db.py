@@ -34,6 +34,7 @@ def init_db() -> None:
             "ical_url": "TEXT",
             "gmail_credentials": "TEXT",
             "slack_channel": "TEXT",
+            "slack_workspaces": "TEXT DEFAULT '[]'",
             "onboarding_step": "TEXT DEFAULT 'start'",
             "preferences": "TEXT DEFAULT '{}'",
         }
@@ -83,6 +84,26 @@ def upsert_user(phone: str, **fields) -> None:
                     [*fields.values(), phone],
                 )
         conn.commit()
+
+
+def add_slack_workspace(phone: str, token: str, team_id: str, team_name: str) -> None:
+    user = get_user(phone)
+    workspaces = []
+    if user and user.get("slack_workspaces"):
+        raw = user["slack_workspaces"]
+        workspaces = json.loads(raw) if isinstance(raw, str) else raw
+    # Replace existing entry for same team, or append
+    workspaces = [w for w in workspaces if w.get("team_id") != team_id]
+    workspaces.append({"token": token, "team_id": team_id, "team_name": team_name})
+    upsert_user(phone, slack_workspaces=json.dumps(workspaces))
+
+
+def get_slack_workspaces(phone: str) -> list:
+    user = get_user(phone)
+    if not user:
+        return []
+    raw = user.get("slack_workspaces", "[]")
+    return json.loads(raw) if isinstance(raw, str) else raw
 
 
 def get_preference(phone: str, key: str, default=None):
