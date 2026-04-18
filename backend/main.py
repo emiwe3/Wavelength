@@ -13,7 +13,7 @@ app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "dev-secret-change-me"))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,12 +24,11 @@ BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = f"{BASE_URL}/auth/google/callback"
-GOOGLE_SCOPES = " ".join([
-    "openid",
-    "email",
-    "https://www.googleapis.com/auth/calendar.readonly",
-    "https://www.googleapis.com/auth/gmail.readonly",
-])
+
+GOOGLE_SCOPE_MAP = {
+    "calendar": "https://www.googleapis.com/auth/calendar.readonly",
+    "gmail": "https://www.googleapis.com/auth/gmail.readonly",
+}
 
 SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID")
 SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET")
@@ -48,7 +47,8 @@ def startup():
 # ── Phone registration ──────────────────────────────────────────────────────
 
 @app.post("/api/register")
-async def register(request: Request, data: dict):
+async def register(request: Request):
+    data = await request.json()
     phone = data.get("phone", "").strip()
     if not phone:
         return JSONResponse({"error": "Phone number required"}, status_code=400)
@@ -76,15 +76,19 @@ async def status(request: Request):
 # ── Google OAuth ────────────────────────────────────────────────────────────
 
 @app.get("/auth/google/start")
-async def google_start(request: Request):
+async def google_start(request: Request, services: str = "calendar,gmail"):
     phone = request.session.get("phone")
     if not phone:
         return RedirectResponse("http://localhost:5173?error=no_phone")
+    requested = [s.strip() for s in services.split(",")]
+    scopes = ["openid", "email"] + [
+        GOOGLE_SCOPE_MAP[s] for s in requested if s in GOOGLE_SCOPE_MAP
+    ]
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
         "response_type": "code",
-        "scope": GOOGLE_SCOPES,
+        "scope": " ".join(scopes),
         "access_type": "offline",
         "prompt": "consent",
         "state": phone,
@@ -119,7 +123,8 @@ async def google_callback(request: Request, code: str = None, state: str = None,
 # ── Canvas ──────────────────────────────────────────────────────────────────
 
 @app.post("/api/canvas/token")
-async def canvas_token(request: Request, data: dict):
+async def canvas_token(request: Request):
+    data = await request.json()
     phone = request.session.get("phone")
     if not phone:
         return JSONResponse({"error": "Not registered"}, status_code=401)
