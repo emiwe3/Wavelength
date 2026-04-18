@@ -1,15 +1,15 @@
-import { GoogleGenAI } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
 import { getStudentContext } from "./context.js";
 
-const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `You are PulsePoint, an AI academic assistant that lives in iMessage.
-You have access to the student's Canvas assignments and help them stay on top of deadlines.
+You have access to the student's Canvas assignments, Google Calendar, Gmail, and Slack.
 Be concise, friendly, and proactive. Format responses for iMessage (no markdown, keep it short).
 If you have assignment data, lead with what's most urgent.`;
 
 // Per-user conversation history for multi-turn chat
-const histories = new Map<string, { role: string; parts: { text: string }[] }[]>();
+const histories = new Map<string, Anthropic.MessageParam[]>();
 
 export async function getAIResponse(userMessage: string, userId: string): Promise<string> {
   const history = histories.get(userId) ?? [];
@@ -19,18 +19,22 @@ export async function getAIResponse(userMessage: string, userId: string): Promis
     ? `${SYSTEM_PROMPT}\n\n${studentContext}`
     : SYSTEM_PROMPT;
 
-  const chat = genai.chats.create({
-    model: "gemini-2.0-flash",
-    config: { systemInstruction: systemWithContext },
-    history,
+  const messages: Anthropic.MessageParam[] = [
+    ...history,
+    { role: "user", content: userMessage },
+  ];
+
+  const response = await client.messages.create({
+    model: "claude-opus-4-7",
+    max_tokens: 1024,
+    system: systemWithContext,
+    messages,
   });
 
-  const response = await chat.sendMessage({ message: userMessage });
-  const assistantText = response.text ?? "";
+  const assistantText = response.content[0].type === "text" ? response.content[0].text : "";
 
-  // Update history with new turns
-  history.push({ role: "user", parts: [{ text: userMessage }] });
-  history.push({ role: "model", parts: [{ text: assistantText }] });
+  history.push({ role: "user", content: userMessage });
+  history.push({ role: "assistant", content: assistantText });
 
   // Keep last 20 turns per user
   histories.set(userId, history.slice(-20));
