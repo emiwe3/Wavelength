@@ -1,11 +1,5 @@
-"""
-bridge.py — iMessage watcher that reads ~/Library/Messages/chat.db and
-            forwards new messages to the Python backend.
-Run with: python3 bridge.py
-Requires Full Disk Access for your terminal.
-"""
-
 import os
+import queue
 import sqlite3
 import tempfile
 import threading
@@ -16,11 +10,10 @@ from pathlib import Path
 
 DB_PATH = Path.home() / "Library/Messages/chat.db"
 BACKEND_URL = "http://localhost:8000"
-POLL_INTERVAL = 0.5  # seconds
+POLL_INTERVAL = 0.5
 
-# Track in-flight senders so we don't double-process
-_processing = set()
-_processing_lock = threading.Lock()
+_sender_queues: dict = {}
+_sender_queues_lock = threading.Lock()
 
 
 def get_connection():
@@ -70,34 +63,42 @@ end tell
         os.unlink(tmp_path)
 
 
-def handle_message(sender, text, chat_guid):
-    with _processing_lock:
-        if sender in _processing:
-            return
-        _processing.add(sender)
-    try:
-        res = requests.post(f"{BACKEND_URL}/api/bot/message", json={
-            "phone": sender,
-            "chat_guid": chat_guid or sender,
-            "text": text,
-        }, timeout=90)
-        data = res.json()
-        if data.get("reply"):
-            send_reply(sender, data["reply"])
-            print(f"📤 Replied to {sender}: {data['reply'][:80]}...")
-    except Exception as e:
-        print(f"❌ Error handling message from {sender}: {e}")
-    finally:
-        with _processing_lock:
-            _processing.discard(sender)
+def sender_worker(sender, q):
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        text, chat_guid = item
+        try:
+            res = requests.post(f"{BACKEND_URL}/api/bot/message", json={
+                "phone": sender,
+                "chat_guid": chat_guid or sender,
+                "text": text,
+            }, timeout=90)
+            data = res.json()
+            if data.get("reply"):
+                send_reply(sender, data["reply"])
+                print(f"Replied to {sender}: {data['reply'][:80]}")
+        except Exception as e:
+            print(f"Error handling message from {sender}: {e}")
+
+
+def enqueue_message(sender, text, chat_guid):
+    with _sender_queues_lock:
+        if sender not in _sender_queues:
+            q = queue.Queue()
+            _sender_queues[sender] = q
+            t = threading.Thread(target=sender_worker, args=(sender, q), daemon=True)
+            t.start()
+        _sender_queues[sender].put((text, chat_guid))
 
 
 def main():
-    print("🌉 iMessage bridge starting...")
+    print("iMessage bridge starting...")
     conn = get_connection()
     last_rowid = get_latest_rowid(conn)
     conn.close()
-    print(f"✅ Watching for new messages (last ROWID: {last_rowid})...")
+    print(f"Watching for new messages (last ROWID: {last_rowid})...")
 
     while True:
         try:
@@ -112,15 +113,11 @@ def main():
                 if not sender or not text:
                     continue
 
-                print(f"📩 From {sender}: {text}")
-                threading.Thread(
-                    target=handle_message,
-                    args=(sender, text, msg["chat_identifier"]),
-                    daemon=True,
-                ).start()
+                print(f"From {sender}: {text}")
+                enqueue_message(sender, text, msg["chat_identifier"])
 
         except Exception as e:
-            print(f"❌ DB error: {e}")
+            print(f"DB error: {e}")
 
         time.sleep(POLL_INTERVAL)
 
