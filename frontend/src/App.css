@@ -25,6 +25,19 @@ header {
   margin-bottom: 8px;
 }
 
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.reset-btn {
+  font-size: 0.8rem;
+  color: #888;
+  padding: 4px 8px;
+}
+
 header h1 {
   font-size: 2rem;
   font-weight: 700;
@@ -234,6 +247,45 @@ button:disabled {
 .text-btn:hover {
   background: none;
   color: #0077ed;
+}
+
+.domain-prefilled {
+  background: #f0f8ff;
+  border: 1px solid #c8e0f8;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #1d1d1f;
+}
+
+.canvas-steps {
+  background: #f9f9f9;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.canvas-step-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #555;
+  margin: 0 0 6px;
+}
+
+.canvas-step-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  color: #333;
+  line-height: 1.8;
+}
+
+.canvas-step-list a {
+  color: #0071e3;
+  text-decoration: none;
+}
+
+.canvas-step-list a:hover {
+  text-decoration: underline;
 }
 
 .all-set {

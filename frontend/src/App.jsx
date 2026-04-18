@@ -5,7 +5,7 @@ import StatusCard from "./components/StatusCard";
 import "./App.css";
 
 const API = "http://localhost:8000";
-const DEFAULT_STATUS = { phone: null, google: false, canvas: false, slack: false };
+const DEFAULT_STATUS = { phone: null, google: false, canvas: false, slack: false, slack_workspaces: [] };
 
 const ALL_SERVICES = [
   { key: "calendar", label: "Google Calendar", icon: "🗓️", group: "google" },
@@ -17,20 +17,52 @@ const ALL_SERVICES = [
 export default function App() {
   const [phone, setPhone] = useState("");
   const [registered, setRegistered] = useState(false);
-  const [selected, setSelected] = useState({ calendar: true, gmail: true, canvas: true, slack: true });
-  const [servicesConfirmed, setServicesConfirmed] = useState(false);
+  const [selected, setSelected] = useState(() => {
+    try {
+      const saved = localStorage.getItem("wl_selected");
+      return saved ? JSON.parse(saved) : { calendar: true, gmail: true, canvas: true, slack: true };
+    } catch { return { calendar: true, gmail: true, canvas: true, slack: true }; }
+  });
+  const [servicesConfirmed, setServicesConfirmed] = useState(() => {
+    return localStorage.getItem("wl_confirmed") === "true";
+  });
   const [status, setStatus] = useState(DEFAULT_STATUS);
-  const [canvasDomain, setCanvasDomain] = useState("");
+  const [canvasDomain, setCanvasDomain] = useState(() => localStorage.getItem("wl_canvas_domain") || "");
+  const [canvasDomainLocked, setCanvasDomainLocked] = useState(() => !!localStorage.getItem("wl_canvas_domain"));
   const [canvasToken, setCanvasToken] = useState("");
   const [canvasError, setCanvasError] = useState("");
   const [canvasLoading, setCanvasLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
+  useEffect(() => {
+    if (localStorage.getItem("wl_canvas_domain_cleared") === "true") return;
+    axios.get(`${API}/api/config`).then(({ data }) => {
+      if (data.canvas_domain) {
+        setCanvasDomain((prev) => prev || data.canvas_domain);
+        setCanvasDomainLocked(true);
+        localStorage.setItem("wl_canvas_domain", data.canvas_domain);
+      }
+    }).catch(() => {});
+  }, []);
+
   const fetchStatus = async () => {
     try {
       const { data } = await axios.get(`${API}/api/status`, { withCredentials: true });
-      setStatus(data);
-      if (data.phone) setRegistered(true);
+      if (data.phone) {
+        setStatus(data);
+        setRegistered(true);
+      } else {
+        // Session may have been lost across OAuth redirect — re-register from localStorage
+        const savedPhone = localStorage.getItem("wl_phone");
+        if (savedPhone) {
+          await axios.post(`${API}/api/register`, { phone: savedPhone }, { withCredentials: true });
+          const { data: data2 } = await axios.get(`${API}/api/status`, { withCredentials: true });
+          setStatus(data2);
+          if (data2.phone) setRegistered(true);
+        } else {
+          setStatus(data);
+        }
+      }
     } catch {}
   };
 
@@ -55,6 +87,14 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  useEffect(() => {
+    localStorage.setItem("wl_selected", JSON.stringify(selected));
+  }, [selected]);
+
+  useEffect(() => {
+    localStorage.setItem("wl_confirmed", String(servicesConfirmed));
+  }, [servicesConfirmed]);
+
   const toggleService = (key) =>
     setSelected((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -76,11 +116,28 @@ export default function App() {
     const e164 = `+1${digits}`;
     try {
       await axios.post(`${API}/api/register`, { phone: e164 }, { withCredentials: true });
+      localStorage.setItem("wl_phone", e164);
       setRegistered(true);
       await fetchStatus();
     } catch {
       showToast("Failed to register phone number", true);
     }
+  };
+
+  const handleReset = async () => {
+    localStorage.removeItem("wl_phone");
+    localStorage.removeItem("wl_confirmed");
+    localStorage.removeItem("wl_selected");
+    localStorage.removeItem("wl_canvas_domain");
+    localStorage.setItem("wl_canvas_domain_cleared", "true");
+    try { await axios.post(`${API}/api/logout`, {}, { withCredentials: true }); } catch {}
+    setPhone("");
+    setCanvasDomain("");
+    setCanvasDomainLocked(false);
+    setRegistered(false);
+    setServicesConfirmed(false);
+    setSelected({ calendar: true, gmail: true, canvas: true, slack: true });
+    setStatus(DEFAULT_STATUS);
   };
 
   const handleCanvasSubmit = async (e) => {
@@ -120,7 +177,12 @@ export default function App() {
       )}
 
       <header>
-        <h1>Deadline Reminder</h1>
+        <div className="header-row">
+          <h1>Deadline Reminder</h1>
+          {registered && (
+            <button className="text-btn reset-btn" onClick={handleReset}>Start Over</button>
+          )}
+        </div>
         <p className="subtitle">Connect your accounts and get iMessage reminders for every deadline.</p>
       </header>
 
@@ -176,7 +238,7 @@ export default function App() {
           ) : (
             <div className="confirmed-row">
               <span className="done">Selection confirmed.</span>
-              <button className="text-btn" onClick={() => setServicesConfirmed(false)}>Edit</button>
+              <button className="text-btn" onClick={() => { setServicesConfirmed(false); localStorage.removeItem("wl_confirmed"); }}>Edit</button>
             </div>
           )}
         </section>
@@ -211,26 +273,43 @@ export default function App() {
                 <p className="done">Canvas connected.</p>
               ) : (
                 <form onSubmit={handleCanvasSubmit} className="stack-form">
-                  <input
-                    type="text"
-                    placeholder="your-school.instructure.com"
-                    value={canvasDomain}
-                    onChange={(e) => setCanvasDomain(e.target.value)}
-                    required
-                  />
+                  {canvasDomainLocked ? (
+                    <p className="hint domain-prefilled">
+                      School: <strong>{canvasDomain}</strong>
+                    </p>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="your-school.instructure.com"
+                      value={canvasDomain}
+                      onChange={(e) => { localStorage.removeItem("wl_canvas_domain_cleared"); setCanvasDomain(e.target.value); }}
+                      required
+                    />
+                  )}
+                  <div className="canvas-steps">
+                    <p className="canvas-step-label">Generate your token in 3 clicks:</p>
+                    <ol className="canvas-step-list">
+                      <li>
+                        {canvasDomain
+                          ? <a href={`https://${canvasDomain}/profile/settings#access_tokens`} target="_blank" rel="noreferrer">Open Canvas Account Settings ↗</a>
+
+                          : "Open Canvas → Account → Settings"
+                        }
+                      </li>
+                      <li>Scroll to <strong>Approved Integrations</strong> → click <strong>+ New Access Token</strong></li>
+                      <li>Set purpose (e.g. "Wavelength"), leave expiry blank, click <strong>Generate Token</strong></li>
+                    </ol>
+                  </div>
                   <input
                     type="password"
-                    placeholder="Canvas API token"
+                    placeholder="Paste your token here"
                     value={canvasToken}
                     onChange={(e) => setCanvasToken(e.target.value)}
                     required
                   />
-                  <p className="hint">
-                    Get your token: Canvas → Account → Settings → New Access Token
-                  </p>
                   {canvasError && <p className="field-error">{canvasError}</p>}
                   <button type="submit" disabled={canvasLoading}>
-                    {canvasLoading ? "Verifying…" : "Save Canvas Token"}
+                    {canvasLoading ? "Verifying…" : "Connect Canvas"}
                   </button>
                 </form>
               )}
@@ -240,13 +319,20 @@ export default function App() {
           {needsSlack && (
             <section className="card">
               <h2>{slackStep}. Connect Slack</h2>
-              <p className="hint">Reads your Slack messages for deadline mentions.</p>
+              <p className="hint">Connect each Slack workspace you want Wavelength to read.</p>
+              {status.slack_workspaces?.length > 0 && (
+                <ul className="workspace-list">
+                  {status.slack_workspaces.map((ws) => (
+                    <li key={ws.team_id}>✅ {ws.team_name}</li>
+                  ))}
+                </ul>
+              )}
               <ConnectButton
                 service="Slack"
-                connected={status.slack}
+                connected={false}
                 onClick={() => { window.location.href = `${API}/auth/slack/start`; }}
               >
-                Connect Slack Workspace
+                {status.slack_workspaces?.length > 0 ? "Add Another Workspace" : "Connect Slack Account"}
               </ConnectButton>
             </section>
           )}
