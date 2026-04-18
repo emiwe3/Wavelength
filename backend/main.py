@@ -56,6 +56,22 @@ async def register(request: Request):
     return {"ok": True, "phone": phone}
 
 
+@app.get("/api/config")
+async def config():
+    canvas_base = os.getenv("CANVAS_BASE_URL", "").strip().rstrip("/")
+    domain = canvas_base.replace("https://", "").replace("http://", "") if canvas_base else ""
+    return {"canvas_domain": domain}
+
+
+@app.post("/api/logout")
+async def logout(request: Request):
+    phone = request.session.get("phone")
+    if phone:
+        upsert_user(phone, gmail_credentials=None, canvas_token=None, slack_token=None, ical_url=None)
+    request.session.clear()
+    return {"ok": True}
+
+
 @app.get("/api/status")
 async def status(request: Request):
     phone = request.session.get("phone")
