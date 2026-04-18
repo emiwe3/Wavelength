@@ -9,8 +9,6 @@ from db import init_db, upsert_user, get_user, add_slack_workspace, get_slack_wo
 
 load_dotenv()
 
-import scheduler as scheduler_mod
-
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "dev-secret-change-me"))
 app.add_middleware(
@@ -43,40 +41,7 @@ CANVAS_CLIENT_SECRET = os.getenv("CANVAS_CLIENT_SECRET")
 @app.on_event("startup")
 def startup():
     init_db()
-    scheduler_mod.start()
 
-
-# ── iMessage bridge endpoint ────────────────────────────────────────────────
-
-@app.post("/api/bot/message")
-async def bot_message(request: Request):
-    import agent as agent_mod
-    data = await request.json()
-    phone = data.get("phone", "").strip()
-    text = data.get("text", "").strip()
-    if not phone or not text:
-        return JSONResponse({"error": "phone and text required"}, status_code=400)
-    upsert_user(phone)
-    user = get_user(phone)
-    reply = agent_mod.reply(user, text)
-    return {"reply": reply}
-
-
-# ── Location (from Photon Find My) ──────────────────────────────────────────
-
-@app.post("/api/location")
-async def update_location(request: Request):
-    data = await request.json()
-    phone = data.get("phone", "").strip()
-    lat = data.get("lat")
-    lng = data.get("lng")
-    if not phone or lat is None or lng is None:
-        return JSONResponse({"error": "phone, lat, lng required"}, status_code=400)
-    upsert_user(phone, current_lat=lat, current_lng=lng)
-    return {"ok": True}
-
-
-# ── Phone registration ──────────────────────────────────────────────────────
 
 @app.post("/api/register")
 async def register(request: Request):
@@ -123,8 +88,6 @@ async def status(request: Request):
     }
 
 
-# ── Google OAuth (Gmail only) ───────────────────────────────────────────────
-
 @app.get("/auth/google/start")
 async def google_start(request: Request):
     phone = request.session.get("phone")
@@ -158,7 +121,6 @@ async def google_callback(request: Request, code: str = None, state: str = None,
             "grant_type": "authorization_code",
         })
     tokens = resp.json()
-    # Store in the format expected by gmail.py / google-auth library
     gmail_credentials = {
         "token": tokens.get("access_token"),
         "refresh_token": tokens.get("refresh_token"),
@@ -172,8 +134,6 @@ async def google_callback(request: Request, code: str = None, state: str = None,
     return RedirectResponse(f"{FRONTEND_URL}?connected=google")
 
 
-# ── Google Calendar iCal URL ────────────────────────────────────────────────
-
 @app.post("/api/ical")
 async def save_ical(request: Request):
     data = await request.json()
@@ -184,7 +144,6 @@ async def save_ical(request: Request):
     if not ical_url:
         return JSONResponse({"error": "iCal URL required"}, status_code=400)
 
-    # Validate the URL is reachable and parses as iCal
     try:
         import urllib.request
         with urllib.request.urlopen(ical_url, timeout=10) as resp:
@@ -198,8 +157,6 @@ async def save_ical(request: Request):
     return {"ok": True}
 
 
-# ── Canvas ──────────────────────────────────────────────────────────────────
-
 @app.post("/api/canvas/token")
 async def canvas_token(request: Request):
     data = await request.json()
@@ -211,7 +168,7 @@ async def canvas_token(request: Request):
     if not token or not domain:
         return JSONResponse({"error": "Token and domain required"}, status_code=400)
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         resp = await client.get(
             f"https://{domain}/api/v1/users/self",
             headers={"Authorization": f"Bearer {token}"},
@@ -223,7 +180,6 @@ async def canvas_token(request: Request):
     return {"ok": True}
 
 
-# Canvas OAuth (only works if your school has issued you a developer key)
 @app.get("/auth/canvas/start")
 async def canvas_oauth_start(request: Request, domain: str):
     phone = request.session.get("phone")
@@ -259,14 +215,12 @@ async def canvas_oauth_callback(request: Request, code: str = None, state: str =
     return RedirectResponse(f"{FRONTEND_URL}?connected=canvas")
 
 
-# ── Slack OAuth ─────────────────────────────────────────────────────────────
-
 @app.get("/auth/slack/start")
 async def slack_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
         return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
-    from urllib.parse import urlencode, quote
+    from urllib.parse import urlencode
     return RedirectResponse(
         f"https://slack.com/oauth/v2/authorize?"
         + urlencode({
@@ -301,16 +255,24 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
     return RedirectResponse(f"{FRONTEND_URL}?connected=slack")
 
 
-# ── iMessage bot (called by bridge.mjs) ────────────────────────────────────
+_recent: dict = {}
 
 @app.post("/api/bot/message")
 async def bot_message(request: Request):
+    import time
     import agent as agent_mod
     data = await request.json()
     phone = data.get("phone", "").strip()
     text = data.get("text", "").strip()
     if not phone or not text:
         return JSONResponse({"error": "phone and text required"}, status_code=400)
+
+    key = (phone, text)
+    now = time.time()
+    if now - _recent.get(key, 0) < 5:
+        return JSONResponse({"reply": None})
+    _recent[key] = now
+
     user = get_user(phone)
     if not user:
         upsert_user(phone)
@@ -320,23 +282,3 @@ async def bot_message(request: Request):
     except Exception as exc:
         reply = f"Sorry, something went wrong: {exc}"
     return JSONResponse({"reply": reply})
-
-
-# ── Image parsing (syllabus / flyer → calendar) ─────────────────────────────
-
-@app.post("/api/image")
-async def parse_image(request: Request):
-    import agent as agent_mod
-    data = await request.json()
-    phone = request.session.get("phone") or data.get("phone")
-    if not phone:
-        return JSONResponse({"error": "Not registered"}, status_code=401)
-    user = get_user(phone)
-    if not user:
-        return JSONResponse({"error": "User not found"}, status_code=404)
-    image_base64 = data.get("image_base64")
-    media_type = data.get("media_type", "image/jpeg")
-    if not image_base64:
-        return JSONResponse({"error": "image_base64 required"}, status_code=400)
-    reply = agent_mod.parse_image(user, image_base64, media_type)
-    return {"reply": reply}
