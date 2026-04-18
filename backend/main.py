@@ -178,7 +178,7 @@ async def canvas_token(request: Request):
     if not token or not domain:
         return JSONResponse({"error": "Token and domain required"}, status_code=400)
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         resp = await client.get(
             f"https://{domain}/api/v1/users/self",
             headers={"Authorization": f"Bearer {token}"},
