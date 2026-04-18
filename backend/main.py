@@ -107,8 +107,8 @@ async def google_start(request: Request):
         "prompt": "consent",
         "state": phone,
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{query}")
+    from urllib.parse import urlencode
+    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}")
 
 
 @app.get("/auth/google/callback")
@@ -233,12 +233,15 @@ async def slack_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
         return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
+    from urllib.parse import urlencode, quote
     return RedirectResponse(
-        f"https://slack.com/oauth/v2/authorize"
-        f"?client_id={SLACK_CLIENT_ID}"
-        f"&user_scope={SLACK_SCOPES}"
-        f"&redirect_uri={SLACK_REDIRECT_URI}"
-        f"&state={phone}"
+        f"https://slack.com/oauth/v2/authorize?"
+        + urlencode({
+            "client_id": SLACK_CLIENT_ID,
+            "user_scope": SLACK_SCOPES,
+            "redirect_uri": SLACK_REDIRECT_URI,
+            "state": phone,
+        })
     )
 
 
