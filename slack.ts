@@ -1,5 +1,5 @@
 import { WebClient } from "@slack/web-api";
-import { getUpcomingAssignments } from "./canvas.js";
+import { getUpcomingAssignments, getCourseAnnouncements, isQuiz, urgencyScore } from "./canvas.js";
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 const CHANNEL = process.env.SLACK_CHANNEL_ID!;
@@ -26,19 +26,15 @@ export async function getSlackContext(): Promise<string> {
 }
 
 export async function postDeadlineReminder(): Promise<void> {
-  const assignments = await getUpcomingAssignments();
-  if (assignments.length === 0) {
-    await postToSlack("No upcoming assignments in the next 2 weeks. You're all caught up!");
+  const [assignments, announcements] = await Promise.all([
+    getUpcomingAssignments(),
+    getCourseAnnouncements(),
+  ]);
+
+  if (assignments.length === 0 && announcements.length === 0) {
+    await postToSlack("No upcoming assignments in the next 60 days. You're all caught up!");
     return;
   }
-
-  const lines = assignments.map((a) => {
-    const due = new Date(a.due_at!);
-    const daysLeft = Math.ceil((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    const submitted = a.submission?.submitted_at ? "✅ submitted" : "⏳ not submitted";
-    const dueDateStr = due.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-    return `• *${a.course_name}*: ${a.name} — due ${dueDateStr} (${daysLeft}d) ${submitted}`;
-  });
 
   const urgent = assignments.filter((a) => {
     const daysLeft = Math.ceil((new Date(a.due_at!).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
@@ -46,8 +42,31 @@ export async function postDeadlineReminder(): Promise<void> {
   });
 
   const header = urgent.length > 0
-    ? `🚨 *PulsePoint Deadline Alert* — ${urgent.length} assignment(s) due within 2 days!`
-    : `📚 *PulsePoint Deadline Digest* — ${assignments.length} upcoming assignment(s)`;
+    ? `🚨 *PulsePoint Deadline Alert* — ${urgent.length} item(s) due within 2 days!`
+    : `📚 *PulsePoint Deadline Digest* — ${assignments.length} upcoming item(s)`;
 
-  await postToSlack(`${header}\n\n${lines.join("\n")}`);
+  const assignmentLines = assignments.map((a) => {
+    const due = new Date(a.due_at!);
+    const daysLeft = Math.ceil((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    const submitted = a.submission?.submitted_at ? "✅ submitted" : "⏳ not submitted";
+    const dueDateStr = due.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const pts = a.grade_weight != null
+      ? ` [${a.grade_weight.toFixed(1)}% of grade]`
+      : a.points_possible ? ` [${a.points_possible}pts]` : "";
+    const type = isQuiz(a) ? "Quiz" : "Assignment";
+    const highPriority = urgencyScore(a) > 2 ? " 🔥" : "";
+    return `• *[${type}] ${a.course_name}*:${pts} ${a.name} — due ${dueDateStr} (${daysLeft}d) ${submitted}${highPriority}`;
+  });
+
+  let message = `${header}\n\n${assignmentLines.join("\n")}`;
+
+  if (announcements.length > 0) {
+    const announcementLines = announcements.slice(0, 5).map((ann) => {
+      const date = new Date(ann.posted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return `• *[${ann.course_name}]* "${ann.title}" (${date})`;
+    });
+    message += `\n\n📢 *Recent Announcements:*\n${announcementLines.join("\n")}`;
+  }
+
+  await postToSlack(message);
 }

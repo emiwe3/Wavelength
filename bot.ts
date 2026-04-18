@@ -8,6 +8,12 @@ console.log("🤖 PulsePoint is starting...");
 // Post a deadline digest to Slack on startup
 await postDeadlineReminder();
 
+// Sync Canvas data to Slack every hour
+setInterval(async () => {
+  console.log("🔄 Hourly Canvas sync...");
+  await postDeadlineReminder();
+}, 60 * 60 * 1000);
+
 for await (const event of im.messages.subscribe("message.received")) {
   const { message, chatGuid } = event;
 
