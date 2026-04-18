@@ -5,7 +5,7 @@ import StatusCard from "./components/StatusCard";
 import "./App.css";
 
 const API = "http://localhost:8000";
-const DEFAULT_STATUS = { phone: null, google: false, canvas: false, slack: false };
+const DEFAULT_STATUS = { phone: null, google: false, canvas: false, slack: false, slack_workspaces: [] };
 
 const ALL_SERVICES = [
   { key: "calendar", label: "Google Calendar", icon: "🗓️", group: "google" },
@@ -269,13 +269,20 @@ export default function App() {
           {needsSlack && (
             <section className="card">
               <h2>{slackStep}. Connect Slack</h2>
-              <p className="hint">Reads your Slack messages for deadline mentions.</p>
+              <p className="hint">Connect each Slack workspace you want Wavelength to read.</p>
+              {status.slack_workspaces?.length > 0 && (
+                <ul className="workspace-list">
+                  {status.slack_workspaces.map((ws) => (
+                    <li key={ws.team_id}>✅ {ws.team_name}</li>
+                  ))}
+                </ul>
+              )}
               <ConnectButton
                 service="Slack"
-                connected={status.slack}
+                connected={false}
                 onClick={() => { window.location.href = `${API}/auth/slack/start`; }}
               >
-                Connect Slack Workspace
+                {status.slack_workspaces?.length > 0 ? "Add Another Workspace" : "Connect Slack Account"}
               </ConnectButton>
             </section>
           )}
