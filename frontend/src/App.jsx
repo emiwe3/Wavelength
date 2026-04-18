@@ -27,11 +27,23 @@ export default function App() {
     return localStorage.getItem("wl_confirmed") === "true";
   });
   const [status, setStatus] = useState(DEFAULT_STATUS);
-  const [canvasDomain, setCanvasDomain] = useState("");
+  const [canvasDomain, setCanvasDomain] = useState(() => localStorage.getItem("wl_canvas_domain") || "");
+  const [canvasDomainLocked, setCanvasDomainLocked] = useState(() => !!localStorage.getItem("wl_canvas_domain"));
   const [canvasToken, setCanvasToken] = useState("");
   const [canvasError, setCanvasError] = useState("");
   const [canvasLoading, setCanvasLoading] = useState(false);
   const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (localStorage.getItem("wl_canvas_domain_cleared") === "true") return;
+    axios.get(`${API}/api/config`).then(({ data }) => {
+      if (data.canvas_domain) {
+        setCanvasDomain((prev) => prev || data.canvas_domain);
+        setCanvasDomainLocked(true);
+        localStorage.setItem("wl_canvas_domain", data.canvas_domain);
+      }
+    }).catch(() => {});
+  }, []);
 
   const fetchStatus = async () => {
     try {
@@ -112,6 +124,22 @@ export default function App() {
     }
   };
 
+  const handleReset = async () => {
+    localStorage.removeItem("wl_phone");
+    localStorage.removeItem("wl_confirmed");
+    localStorage.removeItem("wl_selected");
+    localStorage.removeItem("wl_canvas_domain");
+    localStorage.setItem("wl_canvas_domain_cleared", "true");
+    try { await axios.post(`${API}/api/logout`, {}, { withCredentials: true }); } catch {}
+    setPhone("");
+    setCanvasDomain("");
+    setCanvasDomainLocked(false);
+    setRegistered(false);
+    setServicesConfirmed(false);
+    setSelected({ calendar: true, gmail: true, canvas: true, slack: true });
+    setStatus(DEFAULT_STATUS);
+  };
+
   const handleCanvasSubmit = async (e) => {
     e.preventDefault();
     setCanvasError("");
@@ -149,7 +177,12 @@ export default function App() {
       )}
 
       <header>
-        <h1>Deadline Reminder</h1>
+        <div className="header-row">
+          <h1>Deadline Reminder</h1>
+          {registered && (
+            <button className="text-btn reset-btn" onClick={handleReset}>Start Over</button>
+          )}
+        </div>
         <p className="subtitle">Connect your accounts and get iMessage reminders for every deadline.</p>
       </header>
 
@@ -240,26 +273,43 @@ export default function App() {
                 <p className="done">Canvas connected.</p>
               ) : (
                 <form onSubmit={handleCanvasSubmit} className="stack-form">
-                  <input
-                    type="text"
-                    placeholder="your-school.instructure.com"
-                    value={canvasDomain}
-                    onChange={(e) => setCanvasDomain(e.target.value)}
-                    required
-                  />
+                  {canvasDomainLocked ? (
+                    <p className="hint domain-prefilled">
+                      School: <strong>{canvasDomain}</strong>
+                    </p>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="your-school.instructure.com"
+                      value={canvasDomain}
+                      onChange={(e) => { localStorage.removeItem("wl_canvas_domain_cleared"); setCanvasDomain(e.target.value); }}
+                      required
+                    />
+                  )}
+                  <div className="canvas-steps">
+                    <p className="canvas-step-label">Generate your token in 3 clicks:</p>
+                    <ol className="canvas-step-list">
+                      <li>
+                        {canvasDomain
+                          ? <a href={`https://${canvasDomain}/profile/settings#access_tokens`} target="_blank" rel="noreferrer">Open Canvas Account Settings ↗</a>
+
+                          : "Open Canvas → Account → Settings"
+                        }
+                      </li>
+                      <li>Scroll to <strong>Approved Integrations</strong> → click <strong>+ New Access Token</strong></li>
+                      <li>Set purpose (e.g. "Wavelength"), leave expiry blank, click <strong>Generate Token</strong></li>
+                    </ol>
+                  </div>
                   <input
                     type="password"
-                    placeholder="Canvas API token"
+                    placeholder="Paste your token here"
                     value={canvasToken}
                     onChange={(e) => setCanvasToken(e.target.value)}
                     required
                   />
-                  <p className="hint">
-                    Get your token: Canvas → Account → Settings → New Access Token
-                  </p>
                   {canvasError && <p className="field-error">{canvasError}</p>}
                   <button type="submit" disabled={canvasLoading}>
-                    {canvasLoading ? "Verifying…" : "Save Canvas Token"}
+                    {canvasLoading ? "Verifying…" : "Connect Canvas"}
                   </button>
                 </form>
               )}
