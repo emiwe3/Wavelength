@@ -26,8 +26,8 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = f"{BASE_URL}/auth/google/callback"
 
-# Only Gmail scope — Calendar uses the iCal URL, no OAuth needed
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
 SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID")
 SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET")
@@ -81,7 +81,7 @@ async def google_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
         return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
-    scopes = ["openid", "email", GMAIL_SCOPE]
+    scopes = ["openid", "email", GMAIL_SCOPE, CALENDAR_SCOPE]
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
@@ -116,7 +116,7 @@ async def google_callback(request: Request, code: str = None, state: str = None,
         "token_uri": "https://oauth2.googleapis.com/token",
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
-        "scopes": [GMAIL_SCOPE],
+        "scopes": [GMAIL_SCOPE, CALENDAR_SCOPE],
     }
     upsert_user(phone, gmail_credentials=gmail_credentials)
     request.session["phone"] = phone
