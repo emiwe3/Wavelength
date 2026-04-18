@@ -36,11 +36,28 @@ def init_db() -> None:
             "slack_channel": "TEXT",
             "onboarding_step": "TEXT DEFAULT 'start'",
             "preferences": "TEXT DEFAULT '{}'",
+            "reminders_sent": "TEXT DEFAULT '{}'",
         }
         for col, col_def in migrations.items():
             if col not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
         conn.commit()
+
+
+def get_all_users() -> list:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM users").fetchall()
+    users = []
+    for row in rows:
+        user = dict(row)
+        if user.get("gmail_credentials"):
+            user["gmail_credentials"] = json.loads(user["gmail_credentials"])
+        if user.get("preferences"):
+            user["preferences"] = json.loads(user["preferences"])
+        if user.get("reminders_sent"):
+            user["reminders_sent"] = json.loads(user["reminders_sent"])
+        users.append(user)
+    return users
 
 
 def get_user(phone: str) -> Optional[Dict[str, Any]]:
@@ -61,6 +78,8 @@ def upsert_user(phone: str, **fields) -> None:
         fields["gmail_credentials"] = json.dumps(fields["gmail_credentials"])
     if "preferences" in fields and isinstance(fields["preferences"], dict):
         fields["preferences"] = json.dumps(fields["preferences"])
+    if "reminders_sent" in fields and isinstance(fields["reminders_sent"], dict):
+        fields["reminders_sent"] = json.dumps(fields["reminders_sent"])
 
     with _connect() as conn:
         existing = conn.execute(

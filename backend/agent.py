@@ -192,5 +192,23 @@ def _check_conflicts(user: Dict[str, Any], date: str, start_time: str, end_time:
         return ""
 
 
+def proactive_message(user: Dict[str, Any], prompt: str) -> str:
+    """Generate a proactive outbound message — no conversation history."""
+    try:
+        student_context = ctx_mod.get_student_context(user)
+    except Exception as exc:
+        student_context = f"[Could not load student context: {exc}]"
+
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(context=student_context)
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=512,
+        system=system_prompt,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
 def clear_history(phone: str) -> None:
     _history.pop(phone, None)
