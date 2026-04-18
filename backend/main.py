@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
-from db import init_db, upsert_user, get_user
+from db import init_db, upsert_user, get_user, add_slack_workspace, get_slack_workspaces
 import scheduler as scheduler_mod
 
 load_dotenv()
@@ -58,6 +58,22 @@ async def register(request: Request):
     return {"ok": True, "phone": phone}
 
 
+@app.get("/api/config")
+async def config():
+    canvas_base = os.getenv("CANVAS_BASE_URL", "").strip().rstrip("/")
+    domain = canvas_base.replace("https://", "").replace("http://", "") if canvas_base else ""
+    return {"canvas_domain": domain}
+
+
+@app.post("/api/logout")
+async def logout(request: Request):
+    phone = request.session.get("phone")
+    if phone:
+        upsert_user(phone, gmail_credentials=None, canvas_token=None, slack_token=None, ical_url=None)
+    request.session.clear()
+    return {"ok": True}
+
+
 @app.get("/api/status")
 async def status(request: Request):
     phone = request.session.get("phone")
@@ -72,6 +88,7 @@ async def status(request: Request):
         "ical": bool(user.get("ical_url")),
         "canvas": bool(user.get("canvas_token")),
         "slack": bool(user.get("slack_token")),
+        "slack_workspaces": get_slack_workspaces(phone),
     }
 
 
@@ -92,8 +109,8 @@ async def google_start(request: Request):
         "prompt": "consent",
         "state": phone,
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{query}")
+    from urllib.parse import urlencode
+    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}")
 
 
 @app.get("/auth/google/callback")
@@ -218,12 +235,15 @@ async def slack_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
         return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
+    from urllib.parse import urlencode, quote
     return RedirectResponse(
-        f"https://slack.com/oauth/v2/authorize"
-        f"?client_id={SLACK_CLIENT_ID}"
-        f"&user_scope={SLACK_SCOPES}"
-        f"&redirect_uri={SLACK_REDIRECT_URI}"
-        f"&state={phone}"
+        f"https://slack.com/oauth/v2/authorize?"
+        + urlencode({
+            "client_id": SLACK_CLIENT_ID,
+            "user_scope": SLACK_SCOPES,
+            "redirect_uri": SLACK_REDIRECT_URI,
+            "state": phone,
+        })
     )
 
 
@@ -241,6 +261,10 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
         })
     data = resp.json()
     user_token = data.get("authed_user", {}).get("access_token")
+    team_id = data.get("team", {}).get("id", "")
+    team_name = data.get("team", {}).get("name", "Unknown Workspace")
+    if user_token and team_id:
+        add_slack_workspace(phone, user_token, team_id, team_name)
     upsert_user(phone, slack_token=user_token)
     request.session["phone"] = phone
     return RedirectResponse(f"{FRONTEND_URL}?connected=slack")
