@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from db import init_db, upsert_user, get_user
+import scheduler as scheduler_mod
 
 load_dotenv()
 
@@ -41,6 +42,7 @@ CANVAS_CLIENT_SECRET = os.getenv("CANVAS_CLIENT_SECRET")
 @app.on_event("startup")
 def startup():
     init_db()
+    scheduler_mod.start()
 
 
 # ── Phone registration ──────────────────────────────────────────────────────
