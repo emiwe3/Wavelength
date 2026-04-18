@@ -19,7 +19,10 @@ load_dotenv()
 CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"].strip()
 CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"].strip()
 REDIRECT_URI = "http://localhost:8000/auth/google/callback"
-SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+SCOPE = " ".join([
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
+])
 
 auth_code = None
 
@@ -71,7 +74,7 @@ def exchange_code(code: str) -> dict:
         "token_uri": "https://oauth2.googleapis.com/token",
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "scopes": [SCOPE],
+        "scopes": SCOPE.split(),
     }
 
 
