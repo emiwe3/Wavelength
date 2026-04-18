@@ -17,8 +17,15 @@ const ALL_SERVICES = [
 export default function App() {
   const [phone, setPhone] = useState("");
   const [registered, setRegistered] = useState(false);
-  const [selected, setSelected] = useState({ calendar: true, gmail: true, canvas: true, slack: true });
-  const [servicesConfirmed, setServicesConfirmed] = useState(false);
+  const [selected, setSelected] = useState(() => {
+    try {
+      const saved = localStorage.getItem("wl_selected");
+      return saved ? JSON.parse(saved) : { calendar: true, gmail: true, canvas: true, slack: true };
+    } catch { return { calendar: true, gmail: true, canvas: true, slack: true }; }
+  });
+  const [servicesConfirmed, setServicesConfirmed] = useState(() => {
+    return localStorage.getItem("wl_confirmed") === "true";
+  });
   const [status, setStatus] = useState(DEFAULT_STATUS);
   const [canvasDomain, setCanvasDomain] = useState("");
   const [canvasToken, setCanvasToken] = useState("");
@@ -29,8 +36,21 @@ export default function App() {
   const fetchStatus = async () => {
     try {
       const { data } = await axios.get(`${API}/api/status`, { withCredentials: true });
-      setStatus(data);
-      if (data.phone) setRegistered(true);
+      if (data.phone) {
+        setStatus(data);
+        setRegistered(true);
+      } else {
+        // Session may have been lost across OAuth redirect — re-register from localStorage
+        const savedPhone = localStorage.getItem("wl_phone");
+        if (savedPhone) {
+          await axios.post(`${API}/api/register`, { phone: savedPhone }, { withCredentials: true });
+          const { data: data2 } = await axios.get(`${API}/api/status`, { withCredentials: true });
+          setStatus(data2);
+          if (data2.phone) setRegistered(true);
+        } else {
+          setStatus(data);
+        }
+      }
     } catch {}
   };
 
@@ -55,6 +75,14 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  useEffect(() => {
+    localStorage.setItem("wl_selected", JSON.stringify(selected));
+  }, [selected]);
+
+  useEffect(() => {
+    localStorage.setItem("wl_confirmed", String(servicesConfirmed));
+  }, [servicesConfirmed]);
+
   const toggleService = (key) =>
     setSelected((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -76,6 +104,7 @@ export default function App() {
     const e164 = `+1${digits}`;
     try {
       await axios.post(`${API}/api/register`, { phone: e164 }, { withCredentials: true });
+      localStorage.setItem("wl_phone", e164);
       setRegistered(true);
       await fetchStatus();
     } catch {
@@ -176,7 +205,7 @@ export default function App() {
           ) : (
             <div className="confirmed-row">
               <span className="done">Selection confirmed.</span>
-              <button className="text-btn" onClick={() => setServicesConfirmed(false)}>Edit</button>
+              <button className="text-btn" onClick={() => { setServicesConfirmed(false); localStorage.removeItem("wl_confirmed"); }}>Edit</button>
             </div>
           )}
         </section>
