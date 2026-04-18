@@ -1,8 +1,3 @@
-"""
-chat.py — interactive PulsePoint chat session.
-Run: python3 chat.py
-"""
-
 import json, os, sqlite3
 from pathlib import Path
 from dotenv import load_dotenv
@@ -14,7 +9,7 @@ import agent, context as ctx_mod
 db_path = Path(__file__).parent / "users.db"
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
-row = conn.execute("SELECT * FROM users WHERE phone = '+19165448193'").fetchone()
+row = conn.execute("SELECT * FROM users WHERE phone = '+14156056081'").fetchone()
 conn.close()
 
 user = dict(row)

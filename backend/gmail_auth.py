@@ -1,9 +1,3 @@
-"""
-gmail_auth.py — one-shot Gmail OAuth flow.
-Opens browser, captures callback, saves credentials to DB.
-Run: python3 gmail_auth.py <phone_number>
-"""
-
 import json
 import os
 import sys
@@ -83,7 +77,6 @@ if __name__ == "__main__":
 
     url = get_auth_url()
     print(f"Opening browser for Gmail OAuth...")
-    print(f"URL: {url}\n")
     webbrowser.open(url)
 
     print("Waiting for OAuth callback on localhost:8000...")
@@ -91,7 +84,7 @@ if __name__ == "__main__":
     server.handle_request()
 
     if not auth_code:
-        print("❌ No code received.")
+        print("No code received.")
         sys.exit(1)
 
     print("Exchanging code for credentials...")
@@ -100,5 +93,4 @@ if __name__ == "__main__":
     import db
     db.init_db()
     db.upsert_user(phone, gmail_credentials=creds)
-    print(f"✅ Gmail credentials saved for {phone}")
-    print("Run python3 test_all.py to test.")
+    print(f"Gmail credentials saved for {phone}")
