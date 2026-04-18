@@ -70,14 +70,19 @@ def get_student_context(user: Dict[str, Any]) -> str:
         sections.append("[No Gmail connected]")
 
     # ── Slack ──────────────────────────────────────────────────────────────
-    if user.get("slack_token") and user.get("slack_channel"):
-        try:
-            messages = slack_sync.get_announcements(
-                user["slack_token"], user["slack_channel"]
-            )
-            sections.append(_format_slack(messages))
-        except Exception as exc:
-            sections.append(f"[Slack sync failed: {exc}]")
+    workspaces = db.get_slack_workspaces(user["phone"])
+    if not workspaces and user.get("slack_token"):
+        workspaces = [{"token": user["slack_token"]}]
+    if workspaces:
+        all_messages = []
+        for ws in workspaces:
+            try:
+                msgs = slack_sync.get_announcements(ws["token"])
+                all_messages.extend(msgs)
+            except Exception as exc:
+                sections.append(f"[Slack sync failed for workspace: {exc}]")
+        all_messages.sort(key=lambda m: m.get("ts", ""), reverse=True)
+        sections.append(_format_slack(all_messages))
     else:
         sections.append("[No Slack connected]")
 
