@@ -301,6 +301,27 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
     return RedirectResponse(f"{FRONTEND_URL}?connected=slack")
 
 
+# ── iMessage bot (called by bridge.mjs) ────────────────────────────────────
+
+@app.post("/api/bot/message")
+async def bot_message(request: Request):
+    import agent as agent_mod
+    data = await request.json()
+    phone = data.get("phone", "").strip()
+    text = data.get("text", "").strip()
+    if not phone or not text:
+        return JSONResponse({"error": "phone and text required"}, status_code=400)
+    user = get_user(phone)
+    if not user:
+        upsert_user(phone)
+        user = get_user(phone)
+    try:
+        reply = agent_mod.reply(user, text)
+    except Exception as exc:
+        reply = f"Sorry, something went wrong: {exc}"
+    return JSONResponse({"reply": reply})
+
+
 # ── Image parsing (syllabus / flyer → calendar) ─────────────────────────────
 
 @app.post("/api/image")
