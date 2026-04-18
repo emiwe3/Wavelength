@@ -25,10 +25,8 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = f"{BASE_URL}/auth/google/callback"
 
-GOOGLE_SCOPE_MAP = {
-    "calendar": "https://www.googleapis.com/auth/calendar.readonly",
-    "gmail": "https://www.googleapis.com/auth/gmail.readonly",
-}
+# Only Gmail scope — Calendar uses the iCal URL, no OAuth needed
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 
 SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID")
 SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET")
@@ -61,29 +59,27 @@ async def register(request: Request):
 async def status(request: Request):
     phone = request.session.get("phone")
     if not phone:
-        return {"phone": None, "google": False, "canvas": False, "slack": False}
+        return {"phone": None, "google": False, "ical": False, "canvas": False, "slack": False}
     user = get_user(phone)
     if not user:
-        return {"phone": phone, "google": False, "canvas": False, "slack": False}
+        return {"phone": phone, "google": False, "ical": False, "canvas": False, "slack": False}
     return {
         "phone": phone,
-        "google": bool(user.get("google_access_token")),
+        "google": bool(user.get("gmail_credentials")),
+        "ical": bool(user.get("ical_url")),
         "canvas": bool(user.get("canvas_token")),
         "slack": bool(user.get("slack_token")),
     }
 
 
-# ── Google OAuth ────────────────────────────────────────────────────────────
+# ── Google OAuth (Gmail only) ───────────────────────────────────────────────
 
 @app.get("/auth/google/start")
-async def google_start(request: Request, services: str = "calendar,gmail"):
+async def google_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
         return RedirectResponse("http://localhost:5173?error=no_phone")
-    requested = [s.strip() for s in services.split(",")]
-    scopes = ["openid", "email"] + [
-        GOOGLE_SCOPE_MAP[s] for s in requested if s in GOOGLE_SCOPE_MAP
-    ]
+    scopes = ["openid", "email", GMAIL_SCOPE]
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
@@ -111,13 +107,44 @@ async def google_callback(request: Request, code: str = None, state: str = None,
             "grant_type": "authorization_code",
         })
     tokens = resp.json()
-    upsert_user(
-        phone,
-        google_access_token=tokens.get("access_token"),
-        google_refresh_token=tokens.get("refresh_token"),
-    )
+    # Store in the format expected by gmail.py / google-auth library
+    gmail_credentials = {
+        "token": tokens.get("access_token"),
+        "refresh_token": tokens.get("refresh_token"),
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "scopes": [GMAIL_SCOPE],
+    }
+    upsert_user(phone, gmail_credentials=gmail_credentials)
     request.session["phone"] = phone
     return RedirectResponse("http://localhost:5173?connected=google")
+
+
+# ── Google Calendar iCal URL ────────────────────────────────────────────────
+
+@app.post("/api/ical")
+async def save_ical(request: Request):
+    data = await request.json()
+    phone = request.session.get("phone")
+    if not phone:
+        return JSONResponse({"error": "Not registered"}, status_code=401)
+    ical_url = data.get("ical_url", "").strip()
+    if not ical_url:
+        return JSONResponse({"error": "iCal URL required"}, status_code=400)
+
+    # Validate the URL is reachable and parses as iCal
+    try:
+        import urllib.request
+        with urllib.request.urlopen(ical_url, timeout=10) as resp:
+            content = resp.read(512)
+        if b"BEGIN:VCALENDAR" not in content:
+            return JSONResponse({"error": "URL does not appear to be a valid iCal feed"}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"error": f"Could not fetch iCal URL: {exc}"}, status_code=400)
+
+    upsert_user(phone, ical_url=ical_url)
+    return {"ok": True}
 
 
 # ── Canvas ──────────────────────────────────────────────────────────────────
@@ -133,7 +160,6 @@ async def canvas_token(request: Request):
     if not token or not domain:
         return JSONResponse({"error": "Token and domain required"}, status_code=400)
 
-    # Validate the token works
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"https://{domain}/api/v1/users/self",
@@ -142,7 +168,7 @@ async def canvas_token(request: Request):
     if resp.status_code != 200:
         return JSONResponse({"error": "Invalid Canvas token or domain"}, status_code=400)
 
-    upsert_user(phone, canvas_token=token, canvas_domain=domain)
+    upsert_user(phone, canvas_token=token)
     return {"ok": True}
 
 
@@ -177,7 +203,7 @@ async def canvas_oauth_callback(request: Request, code: str = None, state: str =
             "grant_type": "authorization_code",
         })
     tokens = resp.json()
-    upsert_user(phone, canvas_token=tokens.get("access_token"), canvas_domain=domain)
+    upsert_user(phone, canvas_token=tokens.get("access_token"))
     request.session["phone"] = phone
     return RedirectResponse("http://localhost:5173?connected=canvas")
 
@@ -211,7 +237,6 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
             "redirect_uri": SLACK_REDIRECT_URI,
         })
     data = resp.json()
-    # user_token is under authed_user for user-scoped tokens
     user_token = data.get("authed_user", {}).get("access_token")
     upsert_user(phone, slack_token=user_token)
     request.session["phone"] = phone
