@@ -1,0 +1,71 @@
+#!/usr/bin/env python3.13
+"""
+Test travel time + scheduler with dummy location data.
+Uses Harvard Yard as origin and a fake event location.
+Does NOT send real iMessages — mocks messenger.send_message.
+"""
+
+import sys, os
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "../backend/.env"))
+
+import maps
+import scheduler
+import agent
+
+# Nassau Hall, Princeton (dummy origin)
+DUMMY_LAT = 40.3431
+DUMMY_LNG = -74.6573
+
+# Test event location
+EVENT_LOCATION = "Friend Center, Princeton University, NJ"
+
+print("=== Test 1: Direct travel time lookup ===")
+result = maps.get_leave_by(
+    DUMMY_LAT, DUMMY_LNG,
+    EVENT_LOCATION,
+    (datetime.now(timezone.utc) + timedelta(minutes=45)).isoformat(),
+    mode="walking"
+)
+if result:
+    print(f"Travel time: {result['travel_time']}")
+    print(f"Leave by:    {result['leave_by']}")
+else:
+    print("No result (check GOOGLE_MAPS_API_KEY in .env)")
+
+print()
+print("=== Test 2: 1h scheduler reminder with location ===")
+
+now = datetime.now(timezone.utc)
+FAKE_USER = {
+    "phone": "+16175550000",
+    "canvas_token": None,
+    "canvas_domain": None,
+    "ical_url": None,
+    "gmail_credentials": None,
+    "slack_token": None,
+    "reminders_sent": {},
+    "current_lat": DUMMY_LAT,
+    "current_lng": DUMMY_LNG,
+}
+
+FAKE_DEADLINES = [
+    ("exam_1", "CS50 Midterm Exam", now + timedelta(minutes=45), EVENT_LOCATION),
+]
+
+sent = []
+
+with patch("scheduler._collect_deadlines", return_value=FAKE_DEADLINES), \
+     patch("messenger.send_message", side_effect=lambda p, t: sent.append(t)), \
+     patch("db.upsert_user"):
+    scheduler._check_user(FAKE_USER)
+
+if sent:
+    print("Message sent:")
+    print(sent[0])
+else:
+    print("No message sent.")
