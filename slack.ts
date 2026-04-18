@@ -8,17 +8,46 @@ export async function postToSlack(text: string): Promise<void> {
   await slack.chat.postMessage({ channel: CHANNEL, text });
 }
 
-export async function getSlackContext(): Promise<string> {
+export async function joinAllChannels(): Promise<void> {
   try {
-    const result = await slack.conversations.history({ channel: CHANNEL, limit: 20 });
-    const messages = result.messages ?? [];
-    if (messages.length === 0) return "No recent Slack announcements.";
+    const listResult = await slack.conversations.list({ types: "public_channel", limit: 200 });
+    const channels = listResult.channels ?? [];
+    for (const channel of channels) {
+      if (!channel.id || channel.is_member) continue;
+      try {
+        await slack.conversations.join({ channel: channel.id });
+      } catch {
+        // skip channels that can't be joined
+      }
+    }
+  } catch (err) {
+    console.error("Failed to join channels:", err);
+  }
+}
 
-    const lines = messages
-      .filter((m) => m.text && m.text.trim().length > 0)
-      .map((m) => `- ${m.text}`);
+export async function getSlackContext(): Promise<string> {
+  await joinAllChannels();
+  try {
+    const listResult = await slack.conversations.list({ types: "public_channel", limit: 200 });
+    const channels = listResult.channels ?? [];
 
-    return `Recent announcements:\n${lines.join("\n")}`;
+    const sections: string[] = [];
+
+    for (const channel of channels) {
+      if (!channel.id || !channel.name) continue;
+      try {
+        const result = await slack.conversations.history({ channel: channel.id, limit: 10 });
+        const messages = (result.messages ?? []).filter((m) => m.text && m.text.trim().length > 0);
+        if (messages.length === 0) continue;
+        const lines = messages.map((m) => `  - ${m.text}`);
+        sections.push(`#${channel.name}:\n${lines.join("\n")}`);
+      } catch {
+        // bot not in channel, skip
+      }
+    }
+
+    if (sections.length === 0) return "No recent Slack announcements.";
+    return `Recent Slack messages:\n\n${sections.join("\n\n")}`;
   } catch (err) {
     console.error("Slack fetch failed:", err);
     return "";
@@ -70,3 +99,7 @@ export async function postDeadlineReminder(): Promise<void> {
 
   await postToSlack(message);
 }
+
+// test
+const ctx = await getSlackContext();
+console.log(ctx);
