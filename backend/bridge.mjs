@@ -59,5 +59,30 @@ async function safePoll() {
   try { await poll(); } finally { busy = false; }
 }
 
+// Poll Find My every 5 minutes and update the user's location
+async function updateLocations() {
+  try {
+    const friends = await sdk.locations.getFriends();
+    if (!friends || friends.length === 0) return;
+    const users = db.prepare("SELECT phone FROM users").all();
+    const phone = users[0]?.phone;
+    if (!phone) return;
+    for (const friend of friends) {
+      if (!friend.latitude || !friend.longitude) continue;
+      await fetch(`${BACKEND_URL}/api/location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, lat: friend.latitude, lng: friend.longitude }),
+      }).catch(() => {});
+      console.log(`📍 Location updated: ${friend.latitude}, ${friend.longitude}`);
+      break;
+    }
+  } catch (err) {
+    console.error("📍 Find My error:", err.message);
+  }
+}
+
 console.log(`✅ Polling for new iMessages every ${POLL_MS / 1000}s...`);
 setInterval(safePoll, POLL_MS);
+setInterval(updateLocations, 5 * 60 * 1000);
+updateLocations();
