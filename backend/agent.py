@@ -212,3 +212,83 @@ def proactive_message(user: Dict[str, Any], prompt: str) -> str:
 
 def clear_history(phone: str) -> None:
     _history.pop(phone, None)
+
+
+def parse_image(user: Dict[str, Any], image_base64: str, media_type: str = "image/jpeg") -> str:
+    """Extract events from a syllabus or flyer image and add them to Google Calendar."""
+    import json
+
+    extraction_response = client.messages.create(
+        model=MODEL,
+        max_tokens=2048,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": image_base64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "Extract every event, deadline, assignment, exam, office hours, "
+                        "and meeting from this image. Return ONLY a JSON array, no other text. "
+                        "Each item: {\"title\": str, \"date\": \"YYYY-MM-DD\", "
+                        "\"start_time\": \"HH:MM\", \"end_time\": \"HH:MM\" (optional), "
+                        "\"description\": str (optional)}. "
+                        f"Today is {__import__('datetime').date.today().isoformat()}. "
+                        "Resolve relative dates. If no time is given for a deadline, use 23:59. "
+                        "If no year is given, assume the current or next upcoming occurrence."
+                    ),
+                },
+            ],
+        }],
+    )
+
+    raw = extraction_response.content[0].text.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    try:
+        events = json.loads(raw)
+    except json.JSONDecodeError:
+        return "I couldn't parse the events from that image. Try a clearer photo."
+
+    if not events:
+        return "I didn't find any events or deadlines in that image."
+
+    creds = user.get("gmail_credentials")
+    added = []
+    skipped = []
+
+    for e in events:
+        if not e.get("title") or not e.get("date") or not e.get("start_time"):
+            skipped.append(e.get("title", "unnamed"))
+            continue
+        try:
+            calendar_write.create_event(
+                credentials_dict=creds,
+                title=e["title"],
+                date=e["date"],
+                start_time=e["start_time"],
+                end_time=e.get("end_time"),
+                description=e.get("description", "Added by PulsePoint"),
+            )
+            added.append(f"{e['title']} ({e['date']})")
+        except Exception as exc:
+            skipped.append(f"{e.get('title', 'unnamed')} ({exc})")
+
+    lines = [f"Found {len(events)} item(s) in that image."]
+    if added:
+        lines.append(f"Added to your calendar:\n" + "\n".join(f"• {a}" for a in added))
+    if skipped:
+        lines.append(f"Skipped (missing info): {', '.join(skipped)}")
+    return "\n\n".join(lines)

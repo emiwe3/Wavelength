@@ -15,6 +15,7 @@ from apscheduler.triggers.cron import CronTrigger
 import db
 import agent
 import messenger
+import maps as maps_mod
 import canvas as canvas_mod
 import calendar_sync
 
@@ -38,17 +39,27 @@ def _check_user(user: dict):
 
     deadlines = _collect_deadlines(user)
 
-    for item_id, title, due_dt in deadlines:
+    for item_id, title, due_dt, location in deadlines:
         hours_left = (due_dt - now).total_seconds() / 3600
 
         for window, lower, label in [(1, 0, "1h"), (24, 1, "24h"), (72, 24, "72h")]:
             key = f"{item_id}_{label}"
             if lower < hours_left <= window and key not in reminders_sent:
                 if label == "1h":
+                    travel_info = ""
+                    lat = user.get("current_lat")
+                    lng = user.get("current_lng")
+                    if lat and lng and location:
+                        eta = maps_mod.get_leave_by(lat, lng, location, due_dt.isoformat())
+                        if eta:
+                            travel_info = (
+                                f" It's at {location}. "
+                                f"{eta['travel_time']} — leave by {eta['leave_by']}."
+                            )
                     prompt = (
                         f"Send an urgent last-chance warning that '{title}' is due in "
                         f"under an hour (about {int(hours_left * 60)} minutes). Be direct and alarming — "
-                        f"tell them to drop everything and submit or turn it in right now."
+                        f"tell them to drop everything and go right now.{travel_info}"
                     )
                 else:
                     prompt = (
@@ -79,7 +90,7 @@ def _collect_deadlines(user: dict):
                 if not a.get("submitted"):
                     due = datetime.fromisoformat(a["due_at"].replace("Z", "+00:00"))
                     item_id = f"canvas_{a['course']}_{a['name']}"
-                    items.append((item_id, f"{a['course']}: {a['name']}", due))
+                    items.append((item_id, f"{a['course']}: {a['name']}", due, None))
         except Exception:
             pass
 
@@ -95,7 +106,7 @@ def _collect_deadlines(user: dict):
                     if due.tzinfo is None:
                         due = due.replace(tzinfo=timezone.utc)
                     item_id = f"cal_{e['title']}_{e['start'][:10]}"
-                    items.append((item_id, e["title"], due))
+                    items.append((item_id, e["title"], due, e.get("location")))
         except Exception:
             pass
 

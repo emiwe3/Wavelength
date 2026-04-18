@@ -39,6 +39,8 @@ def init_db() -> None:
             "reminders_sent": "TEXT DEFAULT '{}'",
         }
         migrations["slack_workspaces"] = "TEXT DEFAULT '[]'"
+        migrations["current_lat"] = "REAL"
+        migrations["current_lng"] = "REAL"
         for col, col_def in migrations.items():
             if col not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")

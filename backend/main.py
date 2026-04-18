@@ -6,9 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from db import init_db, upsert_user, get_user, add_slack_workspace, get_slack_workspaces
-import scheduler as scheduler_mod
 
 load_dotenv()
+
+import scheduler as scheduler_mod
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "dev-secret-change-me"))
@@ -43,6 +44,36 @@ CANVAS_CLIENT_SECRET = os.getenv("CANVAS_CLIENT_SECRET")
 def startup():
     init_db()
     scheduler_mod.start()
+
+
+# ── iMessage bridge endpoint ────────────────────────────────────────────────
+
+@app.post("/api/bot/message")
+async def bot_message(request: Request):
+    import agent as agent_mod
+    data = await request.json()
+    phone = data.get("phone", "").strip()
+    text = data.get("text", "").strip()
+    if not phone or not text:
+        return JSONResponse({"error": "phone and text required"}, status_code=400)
+    upsert_user(phone)
+    user = get_user(phone)
+    reply = agent_mod.reply(user, text)
+    return {"reply": reply}
+
+
+# ── Location (from Photon Find My) ──────────────────────────────────────────
+
+@app.post("/api/location")
+async def update_location(request: Request):
+    data = await request.json()
+    phone = data.get("phone", "").strip()
+    lat = data.get("lat")
+    lng = data.get("lng")
+    if not phone or lat is None or lng is None:
+        return JSONResponse({"error": "phone, lat, lng required"}, status_code=400)
+    upsert_user(phone, current_lat=lat, current_lng=lng)
+    return {"ok": True}
 
 
 # ── Phone registration ──────────────────────────────────────────────────────
@@ -268,3 +299,23 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
     upsert_user(phone, slack_token=user_token)
     request.session["phone"] = phone
     return RedirectResponse(f"{FRONTEND_URL}?connected=slack")
+
+
+# ── Image parsing (syllabus / flyer → calendar) ─────────────────────────────
+
+@app.post("/api/image")
+async def parse_image(request: Request):
+    import agent as agent_mod
+    data = await request.json()
+    phone = request.session.get("phone") or data.get("phone")
+    if not phone:
+        return JSONResponse({"error": "Not registered"}, status_code=401)
+    user = get_user(phone)
+    if not user:
+        return JSONResponse({"error": "User not found"}, status_code=404)
+    image_base64 = data.get("image_base64")
+    media_type = data.get("media_type", "image/jpeg")
+    if not image_base64:
+        return JSONResponse({"error": "image_base64 required"}, status_code=400)
+    reply = agent_mod.parse_image(user, image_base64, media_type)
+    return {"reply": reply}
