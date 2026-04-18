@@ -282,3 +282,17 @@ async def bot_message(request: Request):
     except Exception as exc:
         reply = f"Sorry, something went wrong: {exc}"
     return JSONResponse({"reply": reply})
+
+
+# ── Location (from Photon Find My) ──────────────────────────────────────────
+
+@app.post("/api/location")
+async def update_location(request: Request):
+    data = await request.json()
+    phone = data.get("phone", "").strip()
+    lat = data.get("lat")
+    lng = data.get("lng")
+    if not phone or lat is None or lng is None:
+        return JSONResponse({"error": "phone, lat, lng required"}, status_code=400)
+    upsert_user(phone, current_lat=lat, current_lng=lng)
+    return {"ok": True}
