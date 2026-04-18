@@ -5,7 +5,7 @@ export default function ConnectButton({ service, connected, onClick, disabled, c
       onClick={onClick}
       disabled={disabled || connected}
     >
-      {connected ? `✓ ${service} Connected` : children}
+      {connected ? `${service} Connected` : children}
     </button>
   );
 }

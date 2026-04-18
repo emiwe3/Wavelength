@@ -1,8 +1,8 @@
 const ALL_SERVICES = [
-  { key: "calendar", label: "Google Calendar", icon: "🗓️", statusKey: "google" },
-  { key: "gmail",    label: "Gmail",           icon: "✉️", statusKey: "google" },
-  { key: "canvas",   label: "Canvas",          icon: "📚", statusKey: "canvas" },
-  { key: "slack",    label: "Slack",           icon: "💬", statusKey: "slack"  },
+  { key: "calendar", label: "Google Calendar", statusKey: "google" },
+  { key: "gmail",    label: "Gmail",           statusKey: "google" },
+  { key: "canvas",   label: "Canvas",          statusKey: "canvas" },
+  { key: "slack",    label: "Slack",           statusKey: "slack"  },
 ];
 
 export default function StatusCard({ status, selected = {} }) {
@@ -14,7 +14,7 @@ export default function StatusCard({ status, selected = {} }) {
       <h3>Connection Status</h3>
       {active.map(({ key, label, icon, statusKey }) => (
         <div key={key} className={`status-row ${status[statusKey] ? "ok" : "pending"}`}>
-          <span>{icon} {label}</span>
+          <span>{label}</span>
           <span className="badge">{status[statusKey] ? "Connected" : "Not connected"}</span>
         </div>
       ))}
