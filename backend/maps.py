@@ -1,79 +1,90 @@
 """
-maps.py — Google Maps Distance Matrix for travel time estimates.
+maps.py — Google Routes API for travel time estimates.
 """
+
 
 import os
 import httpx
+from datetime import datetime, timedelta, timezone
+
 
 MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
-MAPS_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
+ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
-MODES = {"walking", "driving", "transit", "bicycling"}
+
+MODE_MAP = {
+   "walking": "WALK",
+   "driving": "DRIVE",
+   "transit": "TRANSIT",
+   "bicycling": "BICYCLE",
+}
+
+def _compute_route(origin_lat: float, origin_lng: float, destination: str, mode: str) -> dict:
+   travel_mode = MODE_MAP.get(mode, "WALK")
+   with httpx.Client(timeout=5) as client:
+       resp = client.post(
+           ROUTES_URL,
+           headers={
+               "X-Goog-Api-Key": MAPS_API_KEY,
+               "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
+           },
+           json={
+               "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
+               "destination": {"address": destination},
+               "travelMode": travel_mode,
+           },
+       )
+   data = resp.json()
+   routes = data.get("routes", [])
+   if not routes:
+       return {}
+   return routes[0]
+
+
 
 
 def get_travel_time(origin_lat: float, origin_lng: float, destination: str, mode: str = "walking") -> str:
-    """
-    Returns a human-readable travel time string like '12 mins walking'
-    or an empty string if the lookup fails.
-    """
-    if not MAPS_API_KEY:
-        return ""
-    if mode not in MODES:
-        mode = "walking"
+   if not MAPS_API_KEY:
+       return ""
+   try:
+       route = _compute_route(origin_lat, origin_lng, destination, mode)
+       if not route:
+           return ""
+       raw = route.get("duration", "")
+       seconds = int(raw.rstrip("s")) if raw else 0
+       minutes = round(seconds / 60)
+       return f"{minutes} min {mode}"
+   except Exception:
+       return ""
 
-    try:
-        with httpx.Client(timeout=5) as client:
-            resp = client.get(MAPS_URL, params={
-                "origins": f"{origin_lat},{origin_lng}",
-                "destinations": destination,
-                "mode": mode,
-                "key": MAPS_API_KEY,
-            })
-        data = resp.json()
-        element = data["rows"][0]["elements"][0]
-        if element["status"] != "OK":
-            return ""
-        duration = element["duration"]["text"]
-        return f"{duration} {mode}"
-    except Exception:
-        return ""
+
 
 
 def get_leave_by(origin_lat: float, origin_lng: float, destination: str,
-                 event_start_iso: str, mode: str = "walking") -> dict:
-    """
-    Returns dict with travel_time string and leave_by time string.
-    e.g. {"travel_time": "12 mins walking", "leave_by": "6:48 PM"}
-    """
-    if not MAPS_API_KEY:
-        return {}
+                event_start_iso: str, mode: str = "walking") -> dict:
+   if not MAPS_API_KEY:
+       return {}
+   try:
+       route = _compute_route(origin_lat, origin_lng, destination, mode)
+       if not route:
+           return {}
 
-    try:
-        with httpx.Client(timeout=5) as client:
-            resp = client.get(MAPS_URL, params={
-                "origins": f"{origin_lat},{origin_lng}",
-                "destinations": destination,
-                "mode": mode,
-                "key": MAPS_API_KEY,
-            })
-        data = resp.json()
-        element = data["rows"][0]["elements"][0]
-        if element["status"] != "OK":
-            return {}
 
-        duration_seconds = element["duration"]["value"]
-        duration_text = element["duration"]["text"]
+       raw = route.get("duration", "")
+       duration_seconds = int(raw.rstrip("s")) if raw else 0
+       minutes = round(duration_seconds / 60)
 
-        from datetime import datetime, timedelta, timezone
-        event_dt = datetime.fromisoformat(event_start_iso)
-        if event_dt.tzinfo is None:
-            event_dt = event_dt.replace(tzinfo=timezone.utc)
-        leave_dt = event_dt - timedelta(seconds=duration_seconds)
-        leave_by = leave_dt.strftime("%-I:%M %p")
 
-        return {
-            "travel_time": f"{duration_text} {mode}",
-            "leave_by": leave_by,
-        }
-    except Exception:
-        return {}
+       event_dt = datetime.fromisoformat(event_start_iso)
+       if event_dt.tzinfo is None:
+           event_dt = event_dt.replace(tzinfo=timezone.utc)
+       leave_dt = event_dt - timedelta(seconds=duration_seconds)
+       leave_by = leave_dt.strftime("%-I:%M %p")
+
+
+       return {
+           "travel_time": f"{minutes} min {mode}",
+           "leave_by": leave_by,
+       }
+   except Exception:
+       return {}

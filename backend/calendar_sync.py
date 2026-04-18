@@ -1,8 +1,3 @@
-"""
-calendar_sync.py — fetch events from a Google Calendar iCal URL.
-No OAuth needed; the student pastes their secret iCal URL during onboarding.
-"""
-
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List
@@ -11,11 +6,6 @@ from icalendar import Calendar
 
 
 def fetch_events(ical_url: str, days_ahead: int = 21) -> List[Dict[str, Any]]:
-    """
-    Download and parse the iCal feed at `ical_url`.
-    Returns events starting within the next `days_ahead` days, sorted by start time.
-    Each event dict: title, start (ISO str), end (ISO str, optional), location (optional).
-    """
     with urllib.request.urlopen(ical_url, timeout=10) as resp:
         data = resp.read()
 

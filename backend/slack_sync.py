@@ -1,8 +1,3 @@
-"""
-slack_sync.py — read recent messages from all Slack channels the bot has joined.
-Requires channels:read + channels:history scopes on the bot token.
-"""
-
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
@@ -11,15 +6,9 @@ from slack_sdk.errors import SlackApiError
 
 
 def get_announcements(slack_token: str, channel_id: str = None, hours: int = 48) -> List[Dict[str, Any]]:
-    """
-    Fetch recent messages from every channel the bot is a member of.
-    `channel_id` is unused — all joined channels are auto-discovered.
-    Each dict: channel, text, ts.
-    """
     client = WebClient(token=slack_token)
     oldest = str((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
 
-    # Discover all channels the bot has joined
     channels = []
     cursor = None
     while True:
@@ -41,7 +30,6 @@ def get_announcements(slack_token: str, channel_id: str = None, hours: int = 48)
         if not cursor:
             break
 
-    # Fetch messages from each channel
     messages: List[Dict[str, Any]] = []
     for ch in channels:
         try:

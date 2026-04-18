@@ -1,9 +1,4 @@
-"""
-agent.py — Claude-powered conversational agent with calendar write tool use.
-"""
-
 import os
-import time
 import threading
 from collections import defaultdict
 from typing import Any, Dict, List
@@ -19,7 +14,7 @@ client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 MODEL = "claude-sonnet-4-6"
 MAX_HISTORY = 20
 
-SYSTEM_PROMPT_TEMPLATE = """\
+SYSTEM_STATIC = """\
 You are PulsePoint, an AI assistant that lives in iMessage and knows everything \
 about this student's academic and campus life. You have visibility into their \
 calendar events, assignments, emails, and Slack announcements — which include \
@@ -34,10 +29,7 @@ If either is missing, ask the student for the missing detail before creating the
 
 Tone: warm, direct, like a smart friend who actually knows their schedule. \
 No fluff, no filler. Be concise. Plain text only — no markdown, no bullet symbols, \
-no asterisks. Use line breaks to separate thoughts.
-
-Student context (live data):
-{context}
+no asterisks. Use line breaks to separate thoughts.\
 """
 
 TOOLS = [
@@ -82,7 +74,7 @@ TOOLS = [
 ]
 
 _history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-CONTEXT_TTL = 300  # 5 minutes
+CONTEXT_TTL = 900
 
 
 def _refresh_context(user: Dict[str, Any]) -> None:
@@ -97,10 +89,8 @@ def _get_context(user: Dict[str, Any]) -> str:
     phone = user["phone"]
     cached = db_mod.get_cached_context(phone, ttl=CONTEXT_TTL)
     if cached:
-        # Refresh in background so next call is fresh
         threading.Thread(target=_refresh_context, args=(user,), daemon=True).start()
         return cached
-    # No cache — fetch synchronously then store
     try:
         ctx = ctx_mod.get_student_context(user)
         db_mod.set_cached_context(phone, ctx)
@@ -109,33 +99,37 @@ def _get_context(user: Dict[str, Any]) -> str:
         return f"[Could not load student context: {exc}]"
 
 
+def _build_system(student_context: str) -> list:
+    return [
+        {"type": "text", "text": SYSTEM_STATIC, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": f"Student context (live data):\n{student_context}"},
+    ]
+
+
 def reply(user: Dict[str, Any], message: str) -> str:
     phone = user["phone"]
     student_context = _get_context(user)
-
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(context=student_context)
+    system = _build_system(student_context)
 
     _history[phone].append({"role": "user", "content": message})
     history = _history[phone][-MAX_HISTORY:]
 
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
-        system=system_prompt,
+        max_tokens=512,
+        system=system,
         messages=history,
         tools=TOOLS,
     )
 
-    # Handle tool use
     if response.stop_reason == "tool_use":
         tool_block = next(b for b in response.content if b.type == "tool_use")
         tool_result = _run_tool(user, tool_block.name, tool_block.input)
 
-        # Send tool result back to Claude for final response
         followup = client.messages.create(
             model=MODEL,
-            max_tokens=1024,
-            system=system_prompt,
+            max_tokens=512,
+            system=system,
             messages=history + [
                 {"role": "assistant", "content": response.content},
                 {"role": "user", "content": [
@@ -158,7 +152,6 @@ def _run_tool(user: Dict[str, Any], name: str, inputs: Dict[str, Any]) -> str:
         if not creds:
             return "Error: no Google credentials found. The student needs to reconnect Google."
 
-        # Check for conflicts unless the student has already confirmed override
         if not inputs.get("override", False):
             conflicts = _check_conflicts(
                 user, inputs["date"], inputs["start_time"], inputs.get("end_time")

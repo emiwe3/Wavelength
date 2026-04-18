@@ -1,8 +1,3 @@
-"""
-calendar_write.py — create events on the student's Google Calendar.
-Requires calendar.events scope in the stored OAuth credentials.
-"""
-
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -20,13 +15,6 @@ def create_event(
     description: str = "",
     timezone: str = "America/New_York",
 ) -> Dict[str, Any]:
-    """
-    Create a calendar event.
-    date: YYYY-MM-DD
-    start_time / end_time: HH:MM in 24h format
-    end_time defaults to 1 hour after start if omitted.
-    Returns dict with title, start, end, link.
-    """
     creds = _dict_to_creds(credentials_dict)
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
