@@ -13,13 +13,14 @@ app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "dev-secret-change-me"))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:9000"],
+    allow_origins=["http://localhost:9000", "http://localhost:5174", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:9000")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -78,7 +79,7 @@ async def status(request: Request):
 async def google_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
-        return RedirectResponse("http://localhost:5173?error=no_phone")
+        return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
     scopes = ["openid", "email", GMAIL_SCOPE]
     params = {
         "client_id": GOOGLE_CLIENT_ID,
@@ -96,7 +97,7 @@ async def google_start(request: Request):
 @app.get("/auth/google/callback")
 async def google_callback(request: Request, code: str = None, state: str = None, error: str = None):
     if error or not code:
-        return RedirectResponse(f"http://localhost:5173?error=google_{error or 'cancelled'}")
+        return RedirectResponse(f"{FRONTEND_URL}?error=google_{error or 'cancelled'}")
     phone = state or request.session.get("phone")
     async with httpx.AsyncClient() as client:
         resp = await client.post("https://oauth2.googleapis.com/token", data={
@@ -118,7 +119,7 @@ async def google_callback(request: Request, code: str = None, state: str = None,
     }
     upsert_user(phone, gmail_credentials=gmail_credentials)
     request.session["phone"] = phone
-    return RedirectResponse("http://localhost:5173?connected=google")
+    return RedirectResponse(f"{FRONTEND_URL}?connected=google")
 
 
 # ── Google Calendar iCal URL ────────────────────────────────────────────────
@@ -168,7 +169,7 @@ async def canvas_token(request: Request):
     if resp.status_code != 200:
         return JSONResponse({"error": "Invalid Canvas token or domain"}, status_code=400)
 
-    upsert_user(phone, canvas_token=token)
+    upsert_user(phone, canvas_token=token, canvas_domain=domain)
     return {"ok": True}
 
 
@@ -177,7 +178,7 @@ async def canvas_token(request: Request):
 async def canvas_oauth_start(request: Request, domain: str):
     phone = request.session.get("phone")
     if not phone:
-        return RedirectResponse("http://localhost:5173?error=no_phone")
+        return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
     redirect_uri = f"{BASE_URL}/auth/canvas/callback"
     return RedirectResponse(
         f"https://{domain}/login/oauth2/auth"
@@ -191,7 +192,7 @@ async def canvas_oauth_start(request: Request, domain: str):
 @app.get("/auth/canvas/callback")
 async def canvas_oauth_callback(request: Request, code: str = None, state: str = None, error: str = None):
     if error or not code:
-        return RedirectResponse(f"http://localhost:5173?error=canvas_{error or 'cancelled'}")
+        return RedirectResponse(f"{FRONTEND_URL}?error=canvas_{error or 'cancelled'}")
     phone, domain = state.split("|")
     redirect_uri = f"{BASE_URL}/auth/canvas/callback"
     async with httpx.AsyncClient() as client:
@@ -205,7 +206,7 @@ async def canvas_oauth_callback(request: Request, code: str = None, state: str =
     tokens = resp.json()
     upsert_user(phone, canvas_token=tokens.get("access_token"))
     request.session["phone"] = phone
-    return RedirectResponse("http://localhost:5173?connected=canvas")
+    return RedirectResponse(f"{FRONTEND_URL}?connected=canvas")
 
 
 # ── Slack OAuth ─────────────────────────────────────────────────────────────
@@ -214,7 +215,7 @@ async def canvas_oauth_callback(request: Request, code: str = None, state: str =
 async def slack_start(request: Request):
     phone = request.session.get("phone")
     if not phone:
-        return RedirectResponse("http://localhost:5173?error=no_phone")
+        return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
     return RedirectResponse(
         f"https://slack.com/oauth/v2/authorize"
         f"?client_id={SLACK_CLIENT_ID}"
@@ -227,7 +228,7 @@ async def slack_start(request: Request):
 @app.get("/auth/slack/callback")
 async def slack_callback(request: Request, code: str = None, state: str = None, error: str = None):
     if error or not code:
-        return RedirectResponse(f"http://localhost:5173?error=slack_{error or 'cancelled'}")
+        return RedirectResponse(f"{FRONTEND_URL}?error=slack_{error or 'cancelled'}")
     phone = state or request.session.get("phone")
     async with httpx.AsyncClient() as client:
         resp = await client.post("https://slack.com/api/oauth.v2.access", data={
@@ -240,4 +241,4 @@ async def slack_callback(request: Request, code: str = None, state: str = None, 
     user_token = data.get("authed_user", {}).get("access_token")
     upsert_user(phone, slack_token=user_token)
     request.session["phone"] = phone
-    return RedirectResponse("http://localhost:5173?connected=slack")
+    return RedirectResponse(f"{FRONTEND_URL}?connected=slack")
