@@ -40,7 +40,14 @@ def get_student_context(user: Dict[str, Any]) -> str:
             )
             sections.append(_format_assignments(assignments))
         except Exception as exc:
-            sections.append(f"[Canvas sync failed: {exc}]")
+            sections.append(f"[Canvas assignments failed: {exc}]")
+        try:
+            announcements = canvas_mod.get_announcements(
+                user["canvas_token"], user["canvas_domain"]
+            )
+            sections.append(_format_announcements(announcements))
+        except Exception as exc:
+            sections.append(f"[Canvas announcements failed: {exc}]")
     else:
         sections.append("[No Canvas connected]")
 
@@ -118,6 +125,18 @@ def _format_emails(emails: List[Dict[str, Any]]) -> str:
             f"  Subject: {em['subject']}\n"
             f"  Preview: {em['preview']}"
         )
+    return "\n".join(lines)
+
+
+def _format_announcements(announcements: List[Dict[str, Any]]) -> str:
+    if not announcements:
+        return "CANVAS ANNOUNCEMENTS:\nNone recently."
+
+    lines = ["CANVAS ANNOUNCEMENTS:"]
+    for a in announcements:
+        date = a.get("posted_at", "")[:10]
+        author = f" ({a['author']})" if a.get("author") else ""
+        lines.append(f"- [{a['course']}]{author} \"{a['title']}\" on {date}: {a['message']}")
     return "\n".join(lines)
 
 
