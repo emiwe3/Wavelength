@@ -9,8 +9,6 @@ from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-# Keywords used to identify academic / institutional senders.
-# Matched against the full From header (name + address), case-insensitive.
 _ACADEMIC_KEYWORDS = [
     ".edu",
     "registrar",
@@ -28,14 +26,8 @@ _ACADEMIC_KEYWORDS = [
     "admin",
 ]
 
-# Redirect URI must match exactly what is registered in Google Cloud Console.
-# Add http://localhost:8080/oauth/callback to your OAuth client's allowed URIs.
 REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8080/oauth/callback")
 
-
-# ---------------------------------------------------------------------------
-# OAuth helpers
-# ---------------------------------------------------------------------------
 
 def _client_config() -> Dict:
     return {
@@ -49,11 +41,6 @@ def _client_config() -> Dict:
 
 
 def get_oauth_url() -> str:
-    """
-    Generate the Google OAuth consent-screen URL to send to the student.
-    The student clicks this link, authenticates, and Google redirects to
-    REDIRECT_URI with ?code=... which you exchange via exchange_code().
-    """
     flow = Flow.from_client_config(_client_config(), scopes=SCOPES, redirect_uri=REDIRECT_URI)
     url, _ = flow.authorization_url(
         access_type="offline",
@@ -64,34 +51,15 @@ def get_oauth_url() -> str:
 
 
 def exchange_code(code: str) -> Dict[str, Any]:
-    """
-    Exchange an authorization code (from the OAuth callback) for credentials.
-    Returns a plain dict that can be stored as JSON in the database.
-    """
     flow = Flow.from_client_config(_client_config(), scopes=SCOPES, redirect_uri=REDIRECT_URI)
     flow.fetch_token(code=code)
     return _creds_to_dict(flow.credentials)
 
 
-# ---------------------------------------------------------------------------
-# Email fetching
-# ---------------------------------------------------------------------------
-
 def get_academic_emails(
     credentials_dict: Dict[str, Any],
     hours: int = 48,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """
-    Fetch unread emails from the last `hours` hours, filtered to academic senders.
-
-    Returns:
-        (emails, updated_credentials_dict)
-        Pass updated_credentials_dict back to the DB — the token may have
-        been refreshed automatically.
-
-    Each email dict contains:
-        id, from, subject, date, preview
-    """
     creds = _dict_to_creds(credentials_dict)
 
     if creds.expired and creds.refresh_token:
@@ -142,10 +110,6 @@ def get_academic_emails(
     return emails, _creds_to_dict(creds)
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 def _is_academic_sender(from_header: str) -> bool:
     lower = from_header.lower()
     return any(kw in lower for kw in _ACADEMIC_KEYWORDS)
@@ -174,8 +138,6 @@ def _dict_to_creds(d: Dict[str, Any]) -> Credentials:
 
 
 if __name__ == "__main__":
-    # Quick smoke-test: print the OAuth URL so you can kick off the flow manually.
     from dotenv import load_dotenv
     load_dotenv()
-    print("Open this URL to authorize Gmail access:")
     print(get_oauth_url())

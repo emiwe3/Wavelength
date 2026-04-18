@@ -1,7 +1,3 @@
-"""
-canvas.py — fetch upcoming assignments and announcements from the Canvas LMS REST API.
-"""
-
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
@@ -21,10 +17,6 @@ def get_upcoming_assignments(
     canvas_domain: str,
     days_ahead: int = 21,
 ) -> List[Dict[str, Any]]:
-    """
-    Returns assignments due within the next `days_ahead` days, sorted by due date.
-    Each dict: name, course, due_at (ISO str), points, submitted (bool).
-    """
     headers = {"Authorization": f"Bearer {canvas_token}"}
     base = f"https://{canvas_domain}/api/v1"
     now = datetime.now(timezone.utc)
@@ -76,10 +68,6 @@ def get_announcements(
     canvas_domain: str,
     per_course: int = 5,
 ) -> List[Dict[str, Any]]:
-    """
-    Returns recent announcements across all active courses.
-    Each dict: title, message, posted_at, course.
-    """
     headers = {"Authorization": f"Bearer {canvas_token}"}
     base = f"https://{canvas_domain}/api/v1"
 
