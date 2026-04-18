@@ -1,0 +1,126 @@
+"""
+test/test_all_pipelines — end-to-end test of all four PulsePoint data sources:
+Google Calendar, Gmail, Canvas, and Slack.
+
+Run from the project root:
+    python3.13 test/test_all_pipelines
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
+
+TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", "google", "seed_token.json")
+
+# ── Preflight checks ────────────────────────────────────────────────────────
+
+def check(name, value):
+    if not value:
+        print(f"ERROR: {name} not set in backend/.env")
+        sys.exit(1)
+
+check("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY"))
+check("GOOGLE_ICAL_URL",   os.getenv("GOOGLE_ICAL_URL"))
+check("CANVAS_API_TOKEN",  os.getenv("CANVAS_API_TOKEN"))
+check("CANVAS_BASE_URL",   os.getenv("CANVAS_BASE_URL"))
+check("SLACK_BOT_TOKEN",   os.getenv("SLACK_BOT_TOKEN"))
+check("SLACK_CHANNEL_ID",  os.getenv("SLACK_CHANNEL_ID"))
+
+if not os.path.exists(TOKEN_FILE):
+    print("ERROR: google/seed_token.json not found. Run: cd google && python3.13 seed_data.py")
+    sys.exit(1)
+
+with open(TOKEN_FILE) as f:
+    gmail_creds = json.load(f)
+
+canvas_domain = os.getenv("CANVAS_BASE_URL", "").replace("https://", "").rstrip("/")
+
+user = {
+    "phone": "+10000000000",
+    "ical_url": os.getenv("GOOGLE_ICAL_URL"),
+    "gmail_credentials": gmail_creds,
+    "canvas_token": os.getenv("CANVAS_API_TOKEN"),
+    "canvas_domain": canvas_domain,
+    "slack_token": os.getenv("SLACK_BOT_TOKEN"),
+    "slack_channel": os.getenv("SLACK_CHANNEL_ID"),
+}
+
+import calendar_sync
+import gmail as gmail_mod
+import canvas as canvas_mod
+import slack_sync
+import agent
+
+# ── Source smoke tests ───────────────────────────────────────────────────────
+
+print("=" * 60)
+print("Source checks")
+print("=" * 60)
+
+print("\nCalendar...")
+try:
+    events = calendar_sync.fetch_events(user["ical_url"], days_ahead=21)
+    print(f"  OK — {len(events)} events in the next 3 weeks")
+    for e in events[:3]:
+        print(f"    - {e['title']} ({e['start'][:10]})")
+    if len(events) > 3:
+        print(f"    ... and {len(events) - 3} more")
+except Exception as e:
+    print(f"  FAILED: {e}")
+
+print("\nGmail...")
+try:
+    emails, _ = gmail_mod.get_academic_emails(gmail_creds, hours=48)
+    print(f"  OK — {len(emails)} academic emails in the last 48h")
+    for e in emails[:3]:
+        print(f"    - {e['subject']}")
+except Exception as e:
+    print(f"  FAILED: {e}")
+
+print("\nCanvas...")
+try:
+    assignments = canvas_mod.get_upcoming_assignments(
+        user["canvas_token"], user["canvas_domain"], days_ahead=21
+    )
+    print(f"  OK — {len(assignments)} assignments due in the next 3 weeks")
+    for a in assignments[:3]:
+        print(f"    - {a['course']}: {a['name']} ({a['due_at'][:10]})")
+    if len(assignments) > 3:
+        print(f"    ... and {len(assignments) - 3} more")
+except Exception as e:
+    print(f"  FAILED: {e}")
+
+print("\nSlack...")
+try:
+    messages = slack_sync.get_announcements(user["slack_token"], user["slack_channel"])
+    print(f"  OK — {len(messages)} recent messages")
+    for m in messages[:3]:
+        preview = m["text"][:80].replace("\n", " ")
+        print(f"    - {preview}")
+except Exception as e:
+    print(f"  FAILED: {e}")
+
+# ── Agent test ───────────────────────────────────────────────────────────────
+
+questions = [
+    "what's going on this week",
+    "what are my most urgent deadlines right now",
+    "anything in my email or slack i should know about",
+    "what assignments do i have on canvas",
+    "when should i work on my bio lab report",
+    "i have so much to do i dont know where to start",
+]
+
+print("\n" + "=" * 60)
+print("PulsePoint Agent — All Sources")
+print("=" * 60)
+
+for q in questions:
+    print(f"\nYou: {q}")
+    print(f"\nPulsePoint: {agent.reply(user, q)}")
+    print("-" * 60)
