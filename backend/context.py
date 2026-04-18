@@ -9,6 +9,8 @@ from typing import Any, Dict, List
 import db
 import calendar_sync
 import gmail as gmail_mod
+import canvas as canvas_mod
+import slack_sync
 
 
 def get_student_context(user: Dict[str, Any]) -> str:
@@ -30,6 +32,18 @@ def get_student_context(user: Dict[str, Any]) -> str:
     else:
         sections.append("[No calendar connected]")
 
+    # ── Canvas ────────────────────────────────────────────────────────────
+    if user.get("canvas_token") and user.get("canvas_domain"):
+        try:
+            assignments = canvas_mod.get_upcoming_assignments(
+                user["canvas_token"], user["canvas_domain"], days_ahead=21
+            )
+            sections.append(_format_assignments(assignments))
+        except Exception as exc:
+            sections.append(f"[Canvas sync failed: {exc}]")
+    else:
+        sections.append("[No Canvas connected]")
+
     # ── Gmail ──────────────────────────────────────────────────────────────
     if user.get("gmail_credentials"):
         try:
@@ -47,6 +61,18 @@ def get_student_context(user: Dict[str, Any]) -> str:
             sections.append(f"[Gmail sync failed: {exc}]")
     else:
         sections.append("[No Gmail connected]")
+
+    # ── Slack ──────────────────────────────────────────────────────────────
+    if user.get("slack_token") and user.get("slack_channel"):
+        try:
+            messages = slack_sync.get_announcements(
+                user["slack_token"], user["slack_channel"]
+            )
+            sections.append(_format_slack(messages))
+        except Exception as exc:
+            sections.append(f"[Slack sync failed: {exc}]")
+    else:
+        sections.append("[No Slack connected]")
 
     return "\n\n".join(sections)
 
@@ -68,6 +94,19 @@ def _format_events(events: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _format_assignments(assignments: List[Dict[str, Any]]) -> str:
+    if not assignments:
+        return "CANVAS ASSIGNMENTS:\nNone due in the next 3 weeks."
+
+    lines = ["CANVAS ASSIGNMENTS:"]
+    for a in assignments:
+        due = _fmt_dt(a["due_at"])
+        status = "submitted" if a["submitted"] else "not submitted"
+        pts = f" ({int(a['points'])} pts)" if a.get("points") else ""
+        lines.append(f"- {a['course']}: {a['name']} — due {due}{pts} [{status}]")
+    return "\n".join(lines)
+
+
 def _format_emails(emails: List[Dict[str, Any]]) -> str:
     if not emails:
         return "RECENT ACADEMIC EMAILS (last 48h):\nNone."
@@ -79,6 +118,17 @@ def _format_emails(emails: List[Dict[str, Any]]) -> str:
             f"  Subject: {em['subject']}\n"
             f"  Preview: {em['preview']}"
         )
+    return "\n".join(lines)
+
+
+def _format_slack(messages: List[Dict[str, Any]]) -> str:
+    if not messages:
+        return "CAMPUS & CLUB ANNOUNCEMENTS (Slack):\nNone recently."
+
+    lines = ["CAMPUS & CLUB ANNOUNCEMENTS (Slack):"]
+    for m in messages:
+        channel = f"[#{m['channel']}] " if m.get("channel") else ""
+        lines.append(f"- {channel}{m['text']}")
     return "\n".join(lines)
 
 

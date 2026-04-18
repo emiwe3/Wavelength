@@ -169,7 +169,7 @@ async def canvas_token(request: Request):
     if resp.status_code != 200:
         return JSONResponse({"error": "Invalid Canvas token or domain"}, status_code=400)
 
-    upsert_user(phone, canvas_token=token)
+    upsert_user(phone, canvas_token=token, canvas_domain=domain)
     return {"ok": True}
 
 
