@@ -1,0 +1,76 @@
+"""
+test/test_agent.py — end-to-end test of the PulsePoint agent pipeline.
+
+Uses your real Google Calendar and the dummy emails from seed_data.py.
+No Photon or iMessage needed — runs directly in the terminal.
+
+Run from the project root:
+    python3 test/test_agent.py
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
+
+TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", "google", "seed_token.json")
+
+if not os.path.exists(TOKEN_FILE):
+    print("ERROR: seed_token.json not found. Run python3 seed_data.py first.")
+    sys.exit(1)
+
+if not os.getenv("ANTHROPIC_API_KEY"):
+    print("ERROR: ANTHROPIC_API_KEY not set in .env")
+    sys.exit(1)
+
+if not os.getenv("GOOGLE_ICAL_URL"):
+    print("ERROR: GOOGLE_ICAL_URL not set in .env")
+    sys.exit(1)
+
+with open(TOKEN_FILE) as f:
+    gmail_creds = json.load(f)
+
+# Simulate a fully onboarded user
+user = {
+    "phone": "+10000000000",
+    "ical_url": os.getenv("GOOGLE_ICAL_URL"),
+    "gmail_credentials": gmail_creds,
+    "canvas_token": None,
+    "slack_token": None,
+    "slack_channel": None,
+}
+
+import gmail as gmail_mod
+import agent
+
+# Quick Gmail smoke test before running agent questions
+print("Testing Gmail connection...")
+try:
+    emails, _ = gmail_mod.get_academic_emails(gmail_creds, hours=48)
+    print(f"Gmail OK — {len(emails)} academic emails found")
+    for e in emails:
+        print(f"  - {e['subject']} (from {e['from']})")
+except Exception as e:
+    print(f"Gmail FAILED: {e}")
+print()
+
+questions = [
+    "what do i have due this week",
+    "what does my tuesday look like",
+    "anything important in my email",
+    "i'm so overwhelmed, what should i focus on first",
+]
+
+print("=" * 50)
+print("PulsePoint Agent Test")
+print("=" * 50)
+
+for q in questions:
+    print(f"\nYou: {q}")
+    response = agent.reply(user, q)
+    print(f"\nPulsePoint: {response}")
+    print("-" * 50)
