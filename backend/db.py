@@ -18,6 +18,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 phone             TEXT PRIMARY KEY,
                 canvas_token      TEXT,
+                canvas_domain     TEXT,
                 ical_url          TEXT,
                 gmail_credentials TEXT,
                 slack_token       TEXT,
@@ -29,6 +30,7 @@ def init_db() -> None:
         # Migrate existing tables by adding any missing columns
         existing = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
         migrations = {
+            "canvas_domain": "TEXT",
             "ical_url": "TEXT",
             "gmail_credentials": "TEXT",
             "slack_channel": "TEXT",
