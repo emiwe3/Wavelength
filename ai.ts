@@ -1,39 +1,49 @@
-import { GoogleGenAI } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
 import { getStudentContext } from "./context.js";
 
-const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const client = new Anthropic();
 
 const SYSTEM_PROMPT = `You are PulsePoint, an AI academic assistant that lives in iMessage.
 You have access to the student's Canvas assignments and help them stay on top of deadlines.
 Be concise, friendly, and proactive. Format responses for iMessage (no markdown, keep it short).
 If you have assignment data, lead with what's most urgent.`;
 
-// Per-user conversation history for multi-turn chat
-const histories = new Map<string, { role: string; parts: { text: string }[] }[]>();
+// Per-user conversation history
+const histories = new Map<string, Anthropic.MessageParam[]>();
 
 export async function getAIResponse(userMessage: string, userId: string): Promise<string> {
   const history = histories.get(userId) ?? [];
-
   const studentContext = await getStudentContext();
-  const systemWithContext = studentContext
-    ? `${SYSTEM_PROMPT}\n\n${studentContext}`
-    : SYSTEM_PROMPT;
 
-  const chat = genai.chats.create({
-    model: "gemini-2.0-flash",
-    config: { systemInstruction: systemWithContext },
-    history,
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    system: [
+      // Static instructions — cached for 5 minutes across repeated calls
+      {
+        type: "text",
+        text: SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+      // Dynamic Canvas + Slack context — not cached (changes hourly)
+      ...(studentContext ? [{ type: "text" as const, text: studentContext }] : []),
+    ],
+    messages: [
+      ...history,
+      { role: "user", content: userMessage },
+    ],
   });
 
-  const response = await chat.sendMessage({ message: userMessage });
-  const assistantText = response.text ?? "";
+  const assistantText =
+    response.content[0].type === "text" ? response.content[0].text : "";
 
-  // Update history with new turns
-  history.push({ role: "user", parts: [{ text: userMessage }] });
-  history.push({ role: "model", parts: [{ text: assistantText }] });
-
-  // Keep last 20 turns per user
-  histories.set(userId, history.slice(-20));
+  // Update history and keep last 20 turns
+  const updated: Anthropic.MessageParam[] = [
+    ...history,
+    { role: "user", content: userMessage },
+    { role: "assistant", content: assistantText },
+  ];
+  histories.set(userId, updated.slice(-20));
 
   return assistantText;
 }
