@@ -31,13 +31,10 @@ def get_user(phone: str):
 def upsert_user(phone: str, **fields):
     conn = sqlite3.connect(DB_PATH)
     existing = conn.execute("SELECT phone FROM users WHERE phone = ?", (phone,)).fetchone()
-    if existing:
+    if not existing:
+        conn.execute("INSERT INTO users (phone) VALUES (?)", (phone,))
+    if fields:
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE users SET {set_clause} WHERE phone = ?", (*fields.values(), phone))
-    else:
-        conn.execute("INSERT INTO users (phone) VALUES (?)", (phone,))
-        if fields:
-            set_clause = ", ".join(f"{k} = ?" for k in fields)
-            conn.execute(f"UPDATE users SET {set_clause} WHERE phone = ?", (*fields.values(), phone))
     conn.commit()
     conn.close()
