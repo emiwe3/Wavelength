@@ -134,12 +134,23 @@ def _build_system(student_context: str) -> list:
     ]
 
 
-def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_media_type: str = None) -> tuple:
+def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_media_type: str = None, audio_path: str = None) -> tuple:
+    import audio as audio_mod
+
     phone = user["phone"]
+
+    if audio_path:
+        try:
+            transcribed = audio_mod.transcribe(audio_path)
+            message = transcribed
+        except Exception as exc:
+            message = message or "[Voice message — transcription failed]"
+
     student_context = _get_context(user)
     system = _build_system(student_context)
 
     if image_base64:
+        caption = message or "I sent you an image. If it's an event flyer, extract the event details and offer to add it to my calendar."
         user_content = [
             {
                 "type": "image",
@@ -148,17 +159,17 @@ def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_me
                     "media_type": image_media_type or "image/jpeg",
                     "data": image_base64,
                 },
-            }
+            },
+            {"type": "text", "text": caption},
         ]
-        if message:
-            user_content.append({"type": "text", "text": message})
-        else:
-            user_content.append({"type": "text", "text": "I sent you an image. If it's an event flyer, extract the event details and offer to add it to my calendar."})
+        # Store image in history only for this turn; replace with text summary afterward
         _history[phone].append({"role": "user", "content": user_content})
+        history = _history[phone][-MAX_HISTORY:]
+        # Replace the image entry with a plain-text summary so future turns stay clean
+        _history[phone][-1] = {"role": "user", "content": f"[Sent an image] {caption}"}
     else:
         _history[phone].append({"role": "user", "content": message})
-
-    history = _history[phone][-MAX_HISTORY:]
+        history = _history[phone][-MAX_HISTORY:]
 
     response = client.messages.create(
         model=MODEL,
@@ -192,6 +203,7 @@ def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_me
         reply_text = response.content[0].text.strip()
 
     _history[phone].append({"role": "assistant", "content": reply_text})
+
     return reply_text, actions
 
 
