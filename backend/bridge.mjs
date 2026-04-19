@@ -20,6 +20,13 @@ const attachmentStmt = db.prepare(`
   LIMIT 1
 `);
 
+const chatGuidStmt = db.prepare(`
+  SELECT chat.guid FROM chat
+  JOIN chat_message_join ON chat.ROWID = chat_message_join.chat_id
+  WHERE chat_message_join.message_id = ?
+  LIMIT 1
+`);
+
 // Start from the current max ROWID so we only process new messages
 let lastRowId = db.prepare("SELECT MAX(ROWID) as m FROM message").get().m ?? 0;
 console.log(`🌉 iMessage bridge starting (last ROWID: ${lastRowId})...`);
@@ -58,18 +65,36 @@ async function poll() {
 
     if (!text && !image_base64) continue;
 
+    const chatRow = chatGuidStmt.get(row.ROWID);
+    const chat_guid = chatRow?.guid || sender;
+
     console.log(`📩 From ${sender}: ${text || "(image only)"}`);
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/bot/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: sender, text, image_base64, image_media_type }),
+        body: JSON.stringify({ phone: sender, text, image_base64, image_media_type, chat_guid }),
       });
       const data = await res.json();
       if (data.reply) {
         await sdk.send(sender, data.reply);
         console.log(`📤 Replied: ${data.reply.slice(0, 80)}`);
+      }
+      if (data.scheduled_message) {
+        const { recipient, text: msgText, scheduled_for } = data.scheduled_message;
+        const tzAware = /[Z+\-]\d{2}:?\d{2}$/.test(scheduled_for) ? scheduled_for : `${scheduled_for}-04:00`;
+        const sendAt = new Date(tzAware).getTime();
+        const delay = Math.max(0, sendAt - Date.now());
+        console.log(`⏰ Scheduling message to ${recipient} in ${Math.round(delay / 1000)}s: "${msgText}"`);
+        setTimeout(async () => {
+          try {
+            await sdk.send(recipient, msgText);
+            console.log(`📤 Sent scheduled message to ${recipient}: "${msgText}"`);
+          } catch (e) {
+            console.error(`❌ Scheduled send failed: ${e.message}`);
+          }
+        }, delay);
       }
     } catch (err) {
       console.error("❌ Error:", err.message);
