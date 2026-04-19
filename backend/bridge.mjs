@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import os from "os";
 import path from "path";
 import fs from "fs";
+import { execSync } from "child_process";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 const POLL_MS = 500;
@@ -16,7 +17,11 @@ const attachmentStmt = db.prepare(`
   FROM attachment a
   JOIN message_attachment_join maj ON a.ROWID = maj.attachment_id
   WHERE maj.message_id = ?
-    AND a.mime_type LIKE 'image/%'
+    AND (a.mime_type LIKE 'image/%'
+      OR a.mime_type LIKE 'audio/%'
+      OR a.mime_type = 'com.apple.coreaudio-format'
+      OR a.filename LIKE '%.caf'
+      OR a.transfer_name LIKE '%.caf')
   LIMIT 1
 `);
 
@@ -51,35 +56,51 @@ async function poll() {
 
     let image_base64 = null;
     let image_media_type = null;
+    let audio_path = null;
     const attachment = attachmentStmt.get(row.ROWID);
     if (attachment) {
       const filePath = attachment.filename.replace("~", os.homedir());
-      try {
-        image_base64 = fs.readFileSync(filePath).toString("base64");
-        image_media_type = attachment.mime_type;
-        console.log(`🖼️  Image attachment from ${sender}: ${filePath}`);
-      } catch (e) {
-        console.error(`❌ Could not read attachment: ${e.message}`);
+      const isAudio = attachment.mime_type?.startsWith("audio/") || attachment.mime_type === "com.apple.coreaudio-format" || attachment.filename?.endsWith(".caf");
+      if (isAudio) {
+        audio_path = filePath;
+        console.log(`🎙️  Audio from ${sender}: ${filePath}`);
+      } else {
+        try {
+          image_base64 = fs.readFileSync(filePath).toString("base64");
+          image_media_type = attachment.mime_type;
+          console.log(`🖼️  Image from ${sender}: ${filePath}`);
+        } catch (e) {
+          console.error(`❌ Could not read attachment: ${e.message}`);
+        }
       }
     }
 
-    if (!text && !image_base64) continue;
+    if (!text && !image_base64 && !audio_path) continue;
 
     const chatRow = chatGuidStmt.get(row.ROWID);
     const chat_guid = chatRow?.guid || sender;
 
-    console.log(`📩 From ${sender}: ${text || "(image only)"}`);
+    console.log(`📩 From ${sender}: ${text || (audio_path ? "(voice)" : "(image only)")}`);
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/bot/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: sender, text, image_base64, image_media_type, chat_guid }),
+        body: JSON.stringify({ phone: sender, text, image_base64, image_media_type, audio_path, chat_guid }),
       });
       const data = await res.json();
       if (data.reply) {
         await sdk.send(sender, data.reply);
         console.log(`📤 Replied: ${data.reply.slice(0, 80)}`);
+      }
+      if (data.audio_reply) {
+        const { path: audioFile, recipient } = data.audio_reply;
+        try {
+          execSync(`osascript -e 'tell application "Messages" to send POSIX file "${audioFile}" to buddy "${recipient}" of service "iMessage"'`);
+          console.log(`🔊 Sent audio reply to ${recipient}`);
+        } catch (e) {
+          console.error(`❌ Audio send failed: ${e.message}`);
+        }
       }
       if (data.scheduled_message) {
         const { recipient, text: msgText, scheduled_for } = data.scheduled_message;

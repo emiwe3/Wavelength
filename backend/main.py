@@ -266,8 +266,9 @@ async def bot_message(request: Request):
     text = data.get("text", "").strip()
     image_base64 = data.get("image_base64")
     image_media_type = data.get("image_media_type")
-    if not phone or (not text and not image_base64):
-        return JSONResponse({"error": "phone and text or image required"}, status_code=400)
+    audio_path = data.get("audio_path")
+    if not phone or (not text and not image_base64 and not audio_path):
+        return JSONResponse({"error": "phone and text, image, or audio required"}, status_code=400)
 
     key = (phone, text)
     now = time.time()
@@ -280,7 +281,7 @@ async def bot_message(request: Request):
         upsert_user(phone)
         user = get_user(phone)
     try:
-        reply, actions = agent_mod.reply(user, text, image_base64=image_base64, image_media_type=image_media_type)
+        reply, actions = agent_mod.reply(user, text, image_base64=image_base64, image_media_type=image_media_type, audio_path=audio_path)
     except Exception as exc:
         reply, actions = f"Sorry, something went wrong: {exc}", {}
     return JSONResponse({"reply": reply, **actions})
