@@ -264,8 +264,10 @@ async def bot_message(request: Request):
     data = await request.json()
     phone = data.get("phone", "").strip()
     text = data.get("text", "").strip()
-    if not phone or not text:
-        return JSONResponse({"error": "phone and text required"}, status_code=400)
+    image_base64 = data.get("image_base64")
+    image_media_type = data.get("image_media_type")
+    if not phone or (not text and not image_base64):
+        return JSONResponse({"error": "phone and text or image required"}, status_code=400)
 
     key = (phone, text)
     now = time.time()
@@ -278,7 +280,7 @@ async def bot_message(request: Request):
         upsert_user(phone)
         user = get_user(phone)
     try:
-        reply = agent_mod.reply(user, text)
+        reply = agent_mod.reply(user, text, image_base64=image_base64, image_media_type=image_media_type)
     except Exception as exc:
         reply = f"Sorry, something went wrong: {exc}"
     return JSONResponse({"reply": reply})
