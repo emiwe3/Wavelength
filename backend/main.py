@@ -280,7 +280,7 @@ async def bot_message(request: Request):
         upsert_user(phone)
         user = get_user(phone)
     try:
-        reply = agent_mod.reply(user, text, image_base64=image_base64, image_media_type=image_media_type)
+        reply, actions = agent_mod.reply(user, text, image_base64=image_base64, image_media_type=image_media_type)
     except Exception as exc:
-        reply = f"Sorry, something went wrong: {exc}"
-    return JSONResponse({"reply": reply})
+        reply, actions = f"Sorry, something went wrong: {exc}", {}
+    return JSONResponse({"reply": reply, **actions})

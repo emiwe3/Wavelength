@@ -21,7 +21,8 @@ calendar events, assignments, emails, and Slack announcements — which include 
 club meetings, campus events, social gatherings, and any other activity posted \
 in their university or club Slack channels. Surface ALL of it, not just deadlines.
 
-You can also add events to the student's Google Calendar using the create_calendar_event tool. \
+You can schedule future iMessages using the schedule_message tool — use this for reminders or \
+timed messages the student wants sent later. You can also add events to the student's Google Calendar using the create_calendar_event tool. \
 Use it whenever the student asks you to add, schedule, or remember something on their calendar, \
 or when they send you an event flyer image — extract the event details from the image and offer to add it. \
 Resolve relative dates like "tomorrow" or "next Friday" using the current date in the student context below. \
@@ -34,6 +35,32 @@ no asterisks. Use line breaks to separate thoughts.\
 """
 
 TOOLS = [
+    {
+        "name": "schedule_message",
+        "description": (
+            "Schedule an iMessage to be sent at a future time. "
+            "Use when the student asks to schedule a reminder or message to themselves or a contact. "
+            "Resolve relative times like 'tomorrow at 9am' using the current date in the student context."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "recipient": {
+                    "type": "string",
+                    "description": "Phone number to send to (e.g. +16175551234), or 'self' to send to the student.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The message text to send.",
+                },
+                "scheduled_for": {
+                    "type": "string",
+                    "description": "ISO 8601 datetime when to send, always including the EDT offset, e.g. 2026-04-19T09:00:00-04:00. Derive the send time from the current date/time in the student context.",
+                },
+            },
+            "required": ["recipient", "text", "scheduled_for"],
+        },
+    },
     {
         "name": "create_calendar_event",
         "description": (
@@ -75,7 +102,7 @@ TOOLS = [
 ]
 
 _history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-CONTEXT_TTL = 900
+CONTEXT_TTL = 120
 
 
 def _refresh_context(user: Dict[str, Any]) -> None:
@@ -107,7 +134,7 @@ def _build_system(student_context: str) -> list:
     ]
 
 
-def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_media_type: str = None) -> str:
+def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_media_type: str = None) -> tuple:
     phone = user["phone"]
     student_context = _get_context(user)
     system = _build_system(student_context)
@@ -141,9 +168,12 @@ def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_me
         tools=TOOLS,
     )
 
+    actions = {}
+
     if response.stop_reason == "tool_use":
         tool_block = next(b for b in response.content if b.type == "tool_use")
-        tool_result = _run_tool(user, tool_block.name, tool_block.input)
+        tool_result, tool_actions = _run_tool(user, tool_block.name, tool_block.input)
+        actions.update(tool_actions)
 
         followup = client.messages.create(
             model=MODEL,
@@ -162,14 +192,23 @@ def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_me
         reply_text = response.content[0].text.strip()
 
     _history[phone].append({"role": "assistant", "content": reply_text})
-    return reply_text
+    return reply_text, actions
 
 
-def _run_tool(user: Dict[str, Any], name: str, inputs: Dict[str, Any]) -> str:
+def _run_tool(user: Dict[str, Any], name: str, inputs: Dict[str, Any]) -> tuple:
+    if name == "schedule_message":
+        recipient = inputs.get("recipient", "self")
+        if recipient == "self":
+            recipient = user.get("phone", "")
+        text = inputs.get("text", "")
+        scheduled_for = inputs.get("scheduled_for", "")
+        action = {"recipient": recipient, "text": text, "scheduled_for": scheduled_for}
+        return f"Message scheduled to {recipient} at {scheduled_for}: \"{text}\"", {"scheduled_message": action}
+
     if name == "create_calendar_event":
         creds = user.get("gmail_credentials")
         if not creds:
-            return "Error: no Google credentials found. The student needs to reconnect Google."
+            return "Error: no Google credentials found. The student needs to reconnect Google.", {}
 
         if not inputs.get("override", False):
             conflicts = _check_conflicts(
@@ -178,7 +217,8 @@ def _run_tool(user: Dict[str, Any], name: str, inputs: Dict[str, Any]) -> str:
             if conflicts:
                 return (
                     f"CONFLICT: The student already has the following event(s) at that time: {conflicts}. "
-                    "Ask the student if they want to add it anyway. If they say yes, call this tool again with override=true."
+                    "Ask the student if they want to add it anyway. If they say yes, call this tool again with override=true.",
+                    {},
                 )
 
         try:
@@ -190,10 +230,10 @@ def _run_tool(user: Dict[str, Any], name: str, inputs: Dict[str, Any]) -> str:
                 end_time=inputs.get("end_time"),
                 description=inputs.get("description", ""),
             )
-            return f"Event created: {event['title']} — {event['start']} to {event['end']}"
+            return f"Event created: {event['title']} — {event['start']} to {event['end']}", {}
         except Exception as exc:
-            return f"Error creating event: {exc}"
-    return f"Unknown tool: {name}"
+            return f"Error creating event: {exc}", {}
+    return f"Unknown tool: {name}", {}
 
 
 def _check_conflicts(user: Dict[str, Any], date: str, start_time: str, end_time: str = None) -> str:
