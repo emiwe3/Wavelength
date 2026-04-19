@@ -7,6 +7,7 @@ import anthropic
 
 import context as ctx_mod
 import calendar_write
+import maps as maps_mod
 import db as db_mod
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -22,17 +23,31 @@ club meetings, campus events, social gatherings, and any other activity posted \
 in their university or club Slack channels. Surface ALL of it, not just deadlines.
 
 You can schedule future iMessages using the schedule_message tool — use this for reminders or \
-timed messages the student wants sent later. You can also add events to the student's Google Calendar using the create_calendar_event tool. \
-Use it whenever the student asks you to add, schedule, or remember something on their calendar, \
+timed messages the student wants sent later. You can also add or delete events on the student's Google Calendar using the create_calendar_event and delete_calendar_event tools. \
+Use create_calendar_event whenever the student asks to add, schedule, or remember something on their calendar, \
 or when they send you an event flyer image — extract the event details from the image and offer to add it. \
+You can give directions using the get_directions tool. \
 Resolve relative dates like "tomorrow" or "next Friday" using the current date in the student context below. \
 Before calling the tool, you must have a specific date AND time from the student — do not guess or assume. \
 If either is missing, ask the student for the missing detail before creating the event.
 
-Tone: warm, direct, like a smart friend who actually knows their schedule. \
-No fluff, no filler. Be concise. Plain text only — no markdown, no bullet symbols, \
-no asterisks. Use line breaks to separate thoughts.\
+Plain text only — no markdown, no bullet symbols, no asterisks. Use line breaks to separate thoughts.
+
+PERSONALITY: Adapt your tone based on the student's current mood or request. \
+If they ask you to be kinder, more aggressive, more hype, more chill, more blunt, etc. — fully commit to it. \
+When the student sets a vibe, use the set_personality tool to remember it, then immediately adopt that tone. \
+Default tone: warm, direct, like a smart friend who actually knows their schedule.\
 """
+
+PERSONALITIES = {
+    "sad": "The student is feeling sad. Be extra warm, gentle, and emotionally supportive. Acknowledge their feelings before getting to business.",
+    "unmotivated": "The student is feeling unmotivated. Be energetic, hype them up, use motivational language, push them to get things done. Be a drill sergeant if needed.",
+    "stressed": "The student is stressed. Be calm, reassuring, and help them prioritize. Break things into small steps.",
+    "happy": "The student is in a great mood. Match their energy — be upbeat and fun.",
+    "focused": "The student wants to focus. Be super concise, no small talk, just the facts.",
+    "chill": "Keep it super casual and low-key. Short responses, relaxed vibe.",
+    "default": "Warm, direct, like a smart friend who actually knows their schedule.",
+}
 
 TOOLS = [
     {
@@ -98,7 +113,75 @@ TOOLS = [
             },
             "required": ["title", "date", "start_time"],
         },
-    }
+    },
+    {
+        "name": "set_personality",
+        "description": "Save the student's requested personality/mood so it persists across messages. Call this whenever the student asks you to change your tone, vibe, or energy (e.g. 'be more kind', 'hype me up', 'be aggressive', 'be chill').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mood": {
+                    "type": "string",
+                    "description": "A short label for the mood (e.g. 'sad', 'unmotivated', 'stressed', 'happy', 'focused', 'chill', or a custom description)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "A sentence describing how you should behave in this mode",
+                },
+            },
+            "required": ["mood", "description"],
+        },
+    },
+    {
+        "name": "delete_calendar_event",
+        "description": "Delete an event from the student's Google Calendar. First search for matching events, confirm with the student which one to delete, then delete it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "delete"],
+                    "description": "Use 'search' first to find matching events, then 'delete' with the event_id to remove it.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search term to find the event (for action=search)",
+                },
+                "event_id": {
+                    "type": "string",
+                    "description": "The event ID to delete (for action=delete)",
+                },
+                "event_title": {
+                    "type": "string",
+                    "description": "Title of the event being deleted, for confirmation message",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "get_directions",
+        "description": "Generate a Google Maps directions link to a destination. Use whenever the student asks about directions, how to get somewhere, where a place is, or how long it takes to get there.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "destination": {
+                    "type": "string",
+                    "description": "The destination address or place name",
+                },
+                "origin": {
+                    "type": "string",
+                    "description": "Optional origin address. Leave blank to use the user's current location.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["walking", "driving", "transit", "bicycling"],
+                    "description": "Travel mode. Default: walking.",
+                },
+            },
+            "required": ["destination"],
+        },
+    },
 ]
 
 _history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -127,9 +210,17 @@ def _get_context(user: Dict[str, Any]) -> str:
         return f"[Could not load student context: {exc}]"
 
 
-def _build_system(student_context: str) -> list:
+def _build_system(student_context: str, user: Dict[str, Any] = None) -> list:
+    personality = ""
+    if user:
+        mood = db_mod.get_preference(user["phone"], "personality_mood")
+        desc = db_mod.get_preference(user["phone"], "personality_desc")
+        if mood and desc:
+            personality = f"\nCURRENT MOOD/VIBE: {mood.upper()} — {desc}"
+        elif mood and mood in PERSONALITIES:
+            personality = f"\nCURRENT MOOD/VIBE: {mood.upper()} — {PERSONALITIES[mood]}"
     return [
-        {"type": "text", "text": SYSTEM_STATIC, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": SYSTEM_STATIC + personality, "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": f"Student context (live data):\n{student_context}"},
     ]
 
@@ -147,7 +238,7 @@ def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_me
             message = message or "[Voice message — transcription failed]"
 
     student_context = _get_context(user)
-    system = _build_system(student_context)
+    system = _build_system(student_context, user)
 
     if image_base64:
         caption = message or "I sent you an image. If it's an event flyer, extract the event details and offer to add it to my calendar."
@@ -171,36 +262,41 @@ def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_me
         _history[phone].append({"role": "user", "content": message})
         history = _history[phone][-MAX_HISTORY:]
 
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=512,
-        system=system,
-        messages=history,
-        tools=TOOLS,
-    )
-
+    messages = list(history)
+    reply_text = ""
     actions = {}
 
-    if response.stop_reason == "tool_use":
-        tool_block = next(b for b in response.content if b.type == "tool_use")
-        tool_result, tool_actions = _run_tool(user, tool_block.name, tool_block.input)
-        actions.update(tool_actions)
-
-        followup = client.messages.create(
+    for _ in range(5):  # max tool-call rounds
+        response = client.messages.create(
             model=MODEL,
             max_tokens=512,
             system=system,
-            messages=history + [
-                {"role": "assistant", "content": response.content},
-                {"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": tool_block.id, "content": tool_result}
-                ]},
-            ],
+            messages=messages,
             tools=TOOLS,
         )
-        reply_text = followup.content[0].text.strip()
-    else:
-        reply_text = response.content[0].text.strip()
+
+        if response.stop_reason != "tool_use":
+            text_block = next((b for b in response.content if hasattr(b, "text")), None)
+            reply_text = text_block.text.strip() if text_block else ""
+            break
+
+        # Run ALL tool_use blocks and collect results
+        tool_results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+            result, tool_actions = _run_tool(user, block.name, block.input)
+            actions.update(tool_actions)
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": result,
+            })
+
+        messages = messages + [
+            {"role": "assistant", "content": response.content},
+            {"role": "user", "content": tool_results},
+        ]
 
     _history[phone].append({"role": "assistant", "content": reply_text})
 
@@ -245,6 +341,53 @@ def _run_tool(user: Dict[str, Any], name: str, inputs: Dict[str, Any]) -> tuple:
             return f"Event created: {event['title']} — {event['start']} to {event['end']}", {}
         except Exception as exc:
             return f"Error creating event: {exc}", {}
+
+    if name == "set_personality":
+        mood = inputs.get("mood", "default")
+        description = inputs.get("description", "")
+        db_mod.set_preference(user["phone"], "personality_mood", mood)
+        db_mod.set_preference(user["phone"], "personality_desc", description)
+        return f"Personality set to '{mood}'. Adopt this tone immediately: {description}", {}
+
+    if name == "delete_calendar_event":
+        creds = user.get("gmail_credentials")
+        if not creds:
+            return "Error: no Google credentials found.", {}
+        action = inputs.get("action")
+        if action == "search":
+            query = inputs.get("query", "")
+            events = calendar_write.find_events(creds, query)
+            if not events:
+                return f"No upcoming events found matching '{query}'.", {}
+            lines = [f"Found {len(events)} event(s):"]
+            for e in events:
+                lines.append(f"- \"{e['title']}\" on {e['start']} (id: {e['id']})")
+            return "\n".join(lines), {}
+        elif action == "delete":
+            event_id = inputs.get("event_id", "")
+            title = inputs.get("event_title", "the event")
+            if not event_id:
+                return "Error: event_id required to delete.", {}
+            try:
+                calendar_write.delete_event(creds, event_id)
+                return f"Deleted \"{title}\" from your calendar.", {}
+            except Exception as e:
+                return f"Failed to delete event: {e}", {}
+        return "Error: unknown action.", {}
+
+    if name == "get_directions":
+        from urllib.parse import quote
+        destination = inputs["destination"]
+        origin = inputs.get("origin", "")
+        mode_map = {"driving": "driving", "walking": "walking", "transit": "transit", "bicycling": "bicycling"}
+        mode = mode_map.get(inputs.get("mode", "walking"), "walking")
+        dest_enc = quote(destination)
+        if origin:
+            url = f"https://www.google.com/maps/dir/?api=1&origin={quote(origin)}&destination={dest_enc}&travelmode={mode}"
+        else:
+            url = f"https://www.google.com/maps/dir/?api=1&destination={dest_enc}&travelmode={mode}"
+        return f"Google Maps link: {url}", {}
+
     return f"Unknown tool: {name}", {}
 
 
@@ -280,5 +423,97 @@ def _check_conflicts(user: Dict[str, Any], date: str, start_time: str, end_time:
         return ""
 
 
+def proactive_message(user: Dict[str, Any], prompt: str) -> str:
+    """Generate a proactive outbound message — no conversation history."""
+    student_context = _get_context(user)
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=512,
+        system=_build_system(student_context),
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
 def clear_history(phone: str) -> None:
     _history.pop(phone, None)
+
+
+def parse_image(user: Dict[str, Any], image_base64: str, media_type: str = "image/jpeg") -> str:
+    """Extract events from a syllabus or flyer image and add them to Google Calendar."""
+    import json
+
+    extraction_response = client.messages.create(
+        model=MODEL,
+        max_tokens=2048,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": image_base64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "Extract every event, deadline, assignment, exam, office hours, "
+                        "and meeting from this image. Return ONLY a JSON array, no other text. "
+                        "Each item: {\"title\": str, \"date\": \"YYYY-MM-DD\", "
+                        "\"start_time\": \"HH:MM\", \"end_time\": \"HH:MM\" (optional), "
+                        "\"description\": str (optional)}. "
+                        f"Today is {__import__('datetime').date.today().isoformat()}. "
+                        "Resolve relative dates. If no time is given for a deadline, use 23:59. "
+                        "If no year is given, assume the current or next upcoming occurrence."
+                    ),
+                },
+            ],
+        }],
+    )
+
+    raw = extraction_response.content[0].text.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    try:
+        events = json.loads(raw)
+    except json.JSONDecodeError:
+        return "I couldn't parse the events from that image. Try a clearer photo."
+
+    if not events:
+        return "I didn't find any events or deadlines in that image."
+
+    creds = user.get("gmail_credentials")
+    added = []
+    skipped = []
+
+    for e in events:
+        if not e.get("title") or not e.get("date") or not e.get("start_time"):
+            skipped.append(e.get("title", "unnamed"))
+            continue
+        try:
+            calendar_write.create_event(
+                credentials_dict=creds,
+                title=e["title"],
+                date=e["date"],
+                start_time=e["start_time"],
+                end_time=e.get("end_time"),
+                description=e.get("description", "Added by PulsePoint"),
+            )
+            added.append(f"{e['title']} ({e['date']})")
+        except Exception as exc:
+            skipped.append(f"{e.get('title', 'unnamed')} ({exc})")
+
+    lines = [f"Found {len(events)} item(s) in that image."]
+    if added:
+        lines.append(f"Added to your calendar:\n" + "\n".join(f"• {a}" for a in added))
+    if skipped:
+        lines.append(f"Skipped (missing info): {', '.join(skipped)}")
+    return "\n\n".join(lines)
