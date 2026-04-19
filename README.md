@@ -14,7 +14,7 @@ Wavelength also includes several features like supporting scheduled reminders th
 
 ## How We Built It
 
-On the front-end, we built **a React App** that asks the user to connect their phone number, Google, Canvas, and Slack Accounts to our assistant. On the back-end, we used the **Canvas, Google Cloud, and Slack APIs** to scrape information from the user's accounts; then **our Claude Agent** writes personalized messages based on this data, which are sent to the user through **Photon's iMessage API.**
+With the front-end, we built **a React App** that asks the user to connect their phone number, Google, Canvas, and Slack Accounts to our assistant. On the back-end, we used the **Canvas, Google Cloud, and Slack APIs** to scrape information from the user's accounts; then **our Claude Agent** writes personalized messages based on this data, which are sent to the user through **Photon's iMessage API.**
 
 ## Challenges We Ran Into
 
