@@ -2,7 +2,7 @@
 
 As busy students, we often find ourselves **stressed and overwhelmed by seemingly never-ending deadlines and meetings**. It feels impossible to streamline and keep track of information coming from all different directions: our inboxes, Slack workspaces, Canvas, Google Calendar, and more. From club meeting notifications to office hours, all while maintaining friendships and carving out the personal time that keeps us sane, the mental overhead of tracking everything across five different platforms that never talk to each other is its own kind of exhaustion. Things fall through the cracks. Events are missed. Assignments are either submitted late or scrambled at the last minute. Amidst the countless responsibilities, students need every opportunity to reduce the stress they already have. Thus, we created Wavelength, **an all-in-one personal assistant designed to help students keep up with their busy lives**, alleviating the anxiety from merely trying to find where each piece of information is located.
 
-## What it does
+## What It Does
 
 Our phones are often our go-to place for information -- specifically, iMessage is one of our most-used apps, especially for quick communication. Thus, Wavelength extracts information related to time management (deadlines, class schedules, meetings, etc.) and sends personalized reminders and tips to the user **via iMessage**. There are no new apps to download; no new platforms to check. Users can text Wavelength just like they'd text a friend. 
 
@@ -10,17 +10,17 @@ Wavelength can connect to everything: Canvas assignments, Google Calendar, Gmail
 
 Additionally, Wavelength keeps you part of the campus community. Connect your university Slack workspaces and choose which channels to monitor. Club meetings, campus events, free food, etc. Wavelength surfaces all of it, not just deadlines, giving you updates, asking you about preferences, and keeping you up-to-date with the plans you want.
 
-## How we built it
+## How We Built It
 
 On the front-end, we built **a React App** that asks the user to connect their phone number, Google, Canvas, and Slack Accounts to our assistant. On the back-end, we used the **Canvas, Google Cloud, and Slack APIs** to scrape information from the user's accounts; then **our Claude Agent** writes personalized messages based on this data, which are sent to the user through **Photon's iMessage API.**
 
-## Challenges we ran into
+## Challenges We Ran Into
 
 The part of the project that posed the most problems for us was combining the frontend and backend -- specifically, allowing Slack and other platforms to integrate with our backend processes when a user tries to connect their account through the UI. While testing, we hosted our server on our local computers and used ngrok to bridge the gap between the frontend and backend, so we didn't need to deploy to the web.
 
 Another issue we encountered was having to test many features blindly in the terminal. For instance, we had to write scripts to simulate the messages users would type into our application and run those test scripts through our terminal to anticipate appropriate responses. Running many of the tests through our terminal kept latency low, enabling quick responses so we could iterate on our code. After completing the features and successfully testing them through the terminal, integrating this interactive user interface with real messages that are replied to in real time through Photon posed a significant challenge. The messages initially sent had high latency because our application gathered data from many sources, such as various Slack channels, emails, calendars, and Canvas. To resolve this issue, we used a cache to retrieve relevant, recent messages from the various channels and store them, so we could retrieve them from the cache instead of rescraping the data. After a day, when the messages would potentially become irrelevant, we would clear the cache. This significantly reduced the latency of our Photon-integrated messaging platform.
 
-## Accomplishments that we're proud of
+## Accomplishments That We're Proud Of
 
 The aspect of our project we are most proud of is building something we genuinely need ourselves. This is **the first time any of us has built a fully customized AI agent from the ground up**, and we built it for the most relatable user we know: the overwhelmed college student.
 
@@ -32,7 +32,7 @@ Learning how to use new tools such as the Photon SDK, integrating various APIs f
 
 Building this in a weekend reminded us that the best technology solves a problem you feel every single day. We built Wavelength because we needed it, and we’re proud to return the power to students to control their schedules, academics, and campus involvement.
 
-## What we learned
+## What We Learned
 
 There are many things we have learned from working on this project. One of which is how to integrate so many different APIs and data sources, such as Slack, Google Mail, Google Calendar, and Canvas. We learned the importance of latency and how to use caches to reduce latency between our agents' messages. We also learned how to use the Photon SDK, and it was really interesting to see how our Macs can run as servers. We also learned how to design complex data-processing pipelines, from scraping source data from our various channels to processing it into coherent responses that are sent to the user.
 
@@ -40,6 +40,6 @@ In addition, we learned firsthand why latency kills user experience. Every messa
 
 We went deep on Claude's tool-use API, designing a multi-turn agentic loop in which the model decides mid-conversation whether to call external tools (like writing to Google Calendar), handle conflicts, request missing information from the user, and resume. Building a reliable tool use required carefully engineered prompts, conflict detection logic, and graceful fallbacks.
 
-## What's next for Wavelength
+## What's Next for Wavelength
 
 As for our next steps, we look forward to making our project even more useful and tailored to busy, burnt-out college students. One feature we look forward to **implementing is a RAG model** that helps students monitor their academic performance. For instance, we can **tailor a model that retrieves information from a student’s course syllabi**, customized to each university’s students, academic resources, and professors' office hours. For instance, if a student has a lower grade for a certain class, the agent can send proactive reminders on upcoming assignments that have a high weight to the student’s grade, and remind and encourage them to start on the assignment earlier, or direct them to university resources that would assist them with the assignment. We envision Wavelength as every student’s go-to, omnipotent resource for all their needs, questions, and problems.
