@@ -12,8 +12,16 @@ On the front end, we built a React App that asks the user to connect their phone
 
 ## Challenges we ran into
 
+The part of the project that posed the most problems for us was combining the frontend and backend -- specifically, allowing Slack and other platforms to connect with our backend processes when a user tries to connect their account through the UI. As we were hosting our server on our local computers when testing, we ended up using ngrok to bridge the gap between the frontend and backend without needing to deploy to the web.
+
+Another issue we encountered was having to test many of the features blindly through the terminal. For instance, we had to write scripts to simulate the messages users would type into our application and run those test scripts through our terminal to anticipate appropriate responses. Doing many of the testing through our terminal allowed our testing to have low latency, allowing quick responses in which we could iterate our code upon. After completing the features and successfully testing them through the terminal, integrating this interactive user interface with real messages that are replied to in real time through photon posed a significant challenge. The messages initially sent had high latency, as a result of our application gathering data from so many sources such as various slack channels, emails, calendar and canvas. In order to resolve this issue, we used a cache that would retrieve relevant and recent messages from the various channels and store them, so that we would retrieve from the cache instead of rescraping the data. After a day, when the messages would potentially become irrelevant, we would clear the cache. This significantly reduced latency of our photon integrated messaging platform.
+
 ## Accomplishments that we're proud of
 
 ## What we learned
 
+There are many things we have learned from working on this project. One of which is how to integrate so many different APIs and data sources, such as Slack, Google Mail, Google Calendar, and Canvas. We learned the importance of latency, and how to use caches to reduce latency between messages sent by our agent. We also learned how to use the Photon SDK, and it was really interesting to see how our Macs can run as servers. We also learned how to design complex data processing pipelines, from scraping source data from our various channels to processing them into coherent responses that are sent to the user.
+
 ## What's next for Wavelength
+
+For our next steps, we look forward to making our project even more useful and tailored to the busy, burnt-out college student. One feature we look forward to implementing is a RAG model that helps students monitor their academic performance. For instance, we can tailor a model that retrieves information from a student’s course syllabi, customized to each university’s student and academic resources, and to professor office hours. For instance, if a student has a lower grade for a certain class, the agent can send proactive reminders on upcoming assignments that have a high weight to the student’s grade, and remind and encourage them to start on the assignment earlier, or direct them to university resources that would assist them with the assignment. We envision Wavelength to be every student’s omnipotent, go-to resource for all of their needs, questions, and problems.
