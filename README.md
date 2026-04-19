@@ -20,7 +20,7 @@ The part of the project that posed the most problems for us was combining the fr
 
 Another issue we encountered was having to test many features blindly in the terminal. For instance, we had to write scripts to simulate the messages users would type into our application and run those test scripts through our terminal to anticipate appropriate responses. Running many of the tests through our terminal kept latency low, enabling quick responses so we could iterate on our code. After completing the features and successfully testing them through the terminal, integrating this interactive user interface with real messages that are replied to in real time through Photon posed a significant challenge. The messages initially sent had high latency because our application gathered data from many sources, such as various Slack channels, emails, calendars, and Canvas. To resolve this issue, we used a cache to retrieve relevant, recent messages from the various channels and store them, so we could retrieve them from the cache instead of rescraping the data. After a day, when the messages would potentially become irrelevant, we would clear the cache. This significantly reduced the latency of our Photon-integrated messaging platform.
 
-## Accomplishments That We're Proud Of
+## Accomplishments that We're Proud of
 
 The aspect of our project we are most proud of is building something we genuinely need ourselves. This is **the first time any of us has built a fully customized AI agent from the ground up**, and we built it for the most relatable user we know: the overwhelmed college student.
 
