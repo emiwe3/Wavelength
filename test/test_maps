@@ -17,12 +17,12 @@ import maps
 import scheduler
 import agent
 
-# Nassau Hall, Princeton (dummy origin)
-DUMMY_LAT = 40.3431
-DUMMY_LNG = -74.6573
+# Pennypacker Hall, Harvard (dummy origin)
+DUMMY_LAT = 42.3723
+DUMMY_LNG = -71.1161
 
 # Test event location
-EVENT_LOCATION = "Friend Center, Princeton University, NJ"
+EVENT_LOCATION = "Joe's Pizza, Cambridge, MA"
 
 print("=== Test 1: Direct travel time lookup ===")
 result = maps.get_leave_by(
