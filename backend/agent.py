@@ -22,7 +22,8 @@ club meetings, campus events, social gatherings, and any other activity posted \
 in their university or club Slack channels. Surface ALL of it, not just deadlines.
 
 You can also add events to the student's Google Calendar using the create_calendar_event tool. \
-Use it whenever the student asks you to add, schedule, or remember something on their calendar. \
+Use it whenever the student asks you to add, schedule, or remember something on their calendar, \
+or when they send you an event flyer image — extract the event details from the image and offer to add it. \
 Resolve relative dates like "tomorrow" or "next Friday" using the current date in the student context below. \
 Before calling the tool, you must have a specific date AND time from the student — do not guess or assume. \
 If either is missing, ask the student for the missing detail before creating the event.
@@ -106,12 +107,30 @@ def _build_system(student_context: str) -> list:
     ]
 
 
-def reply(user: Dict[str, Any], message: str) -> str:
+def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_media_type: str = None) -> str:
     phone = user["phone"]
     student_context = _get_context(user)
     system = _build_system(student_context)
 
-    _history[phone].append({"role": "user", "content": message})
+    if image_base64:
+        user_content = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image_media_type or "image/jpeg",
+                    "data": image_base64,
+                },
+            }
+        ]
+        if message:
+            user_content.append({"type": "text", "text": message})
+        else:
+            user_content.append({"type": "text", "text": "I sent you an image. If it's an event flyer, extract the event details and offer to add it to my calendar."})
+        _history[phone].append({"role": "user", "content": user_content})
+    else:
+        _history[phone].append({"role": "user", "content": message})
+
     history = _history[phone][-MAX_HISTORY:]
 
     response = client.messages.create(
