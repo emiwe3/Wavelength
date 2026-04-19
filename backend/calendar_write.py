@@ -45,6 +45,40 @@ def create_event(
     }
 
 
+def delete_event(credentials_dict: Dict[str, Any], event_id: str) -> bool:
+    creds = _dict_to_creds(credentials_dict)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    service = build("calendar", "v3", credentials=creds)
+    service.events().delete(calendarId="primary", eventId=event_id).execute()
+    return True
+
+
+def find_events(credentials_dict: Dict[str, Any], query: str) -> list:
+    creds = _dict_to_creds(credentials_dict)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    service = build("calendar", "v3", credentials=creds)
+    from datetime import timezone
+    now = datetime.now(timezone.utc).isoformat()
+    result = service.events().list(
+        calendarId="primary",
+        q=query,
+        timeMin=now,
+        maxResults=5,
+        singleEvents=True,
+        orderBy="startTime",
+    ).execute()
+    events = []
+    for e in result.get("items", []):
+        events.append({
+            "id": e["id"],
+            "title": e.get("summary", "Untitled"),
+            "start": e["start"].get("dateTime", e["start"].get("date", "")),
+        })
+    return events
+
+
 def _dict_to_creds(d: Dict[str, Any]) -> Credentials:
     return Credentials(
         token=d["token"],

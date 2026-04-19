@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List
 
 import db
@@ -11,8 +12,9 @@ import slack_sync
 
 def get_student_context(user: Dict[str, Any]) -> str:
     sections: List[str] = []
-    now = datetime.now(timezone.utc)
-    sections.append(f"Current date/time: {now.strftime('%A, %B %d, %Y at %I:%M %p UTC')}")
+    ET = ZoneInfo("America/New_York")
+    now = datetime.now(ET)
+    sections.append(f"Current date/time: {now.strftime('%A, %B %d, %Y at %I:%M %p ET')}")
 
     results = _fetch_all(user)
 

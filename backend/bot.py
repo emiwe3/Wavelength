@@ -93,6 +93,9 @@ def main() -> None:
 
     threading.Thread(target=_hourly_sync, daemon=True).start()
 
+    import findmy
+    findmy.start()
+
     print("Listening for iMessages...")
     imessage.listen_sync(on_message)
 
