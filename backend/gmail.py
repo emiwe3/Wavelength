@@ -73,7 +73,7 @@ def get_academic_emails(
     result = (
         service.users()
         .messages()
-        .list(userId="me", q=f"is:unread after:{after_epoch}", maxResults=50)
+        .list(userId="me", q=f"is:unread after:{after_epoch}", maxResults=20)
         .execute()
     )
 
@@ -95,9 +95,6 @@ def get_academic_emails(
 
         headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
         from_header = headers.get("From", "")
-
-        if not _is_academic_sender(from_header):
-            continue
 
         emails.append({
             "id": msg_ref["id"],

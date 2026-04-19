@@ -55,13 +55,13 @@ def _fetch_all(user: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _fetch_calendar(user: Dict[str, Any]) -> str:
-    events = calendar_sync.fetch_events(user["ical_url"], days_ahead=21)
-    return _format_events(events)
+    events = calendar_sync.fetch_events(user["ical_url"], days_ahead=14)
+    return _format_events(events[:15])
 
 
 def _fetch_canvas_assignments(user: Dict[str, Any]) -> str:
     assignments = canvas_mod.get_upcoming_assignments(
-        user["canvas_token"], user["canvas_domain"], days_ahead=21
+        user["canvas_token"], user["canvas_domain"], days_ahead=14
     )
     return _format_assignments(assignments)
 
@@ -74,7 +74,7 @@ def _fetch_canvas_announcements(user: Dict[str, Any]) -> str:
 
 
 def _fetch_gmail(user: Dict[str, Any]) -> str:
-    emails, updated_creds = gmail_mod.get_academic_emails(user["gmail_credentials"], hours=48)
+    emails, updated_creds = gmail_mod.get_academic_emails(user["gmail_credentials"], hours=24)
     try:
         if updated_creds.get("token") != user["gmail_credentials"].get("token"):
             db.upsert_user(user["phone"], gmail_credentials=updated_creds)
@@ -115,8 +115,8 @@ def _format_assignments(assignments: List[Dict[str, Any]]) -> str:
 
 def _format_emails(emails: List[Dict[str, Any]]) -> str:
     if not emails:
-        return "RECENT ACADEMIC EMAILS (last 48h):\nNone."
-    lines = ["RECENT ACADEMIC EMAILS (last 48h):"]
+        return "RECENT EMAILS (last 24h):\nNone."
+    lines = ["RECENT EMAILS (last 24h):"]
     for em in emails:
         lines.append(
             f"- From: {em['from']}\n"

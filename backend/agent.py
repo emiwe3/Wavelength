@@ -13,7 +13,7 @@ import db as db_mod
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 MODEL = "claude-sonnet-4-6"
-MAX_HISTORY = 20
+MAX_HISTORY = 10
 
 SYSTEM_STATIC = """\
 You are PulsePoint, an AI assistant that lives in iMessage and knows everything \
@@ -185,7 +185,7 @@ TOOLS = [
 ]
 
 _history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-CONTEXT_TTL = 120
+CONTEXT_TTL = 600
 
 
 def _refresh_context(user: Dict[str, Any]) -> None:
@@ -221,7 +221,7 @@ def _build_system(student_context: str, user: Dict[str, Any] = None) -> list:
             personality = f"\nCURRENT MOOD/VIBE: {mood.upper()} — {PERSONALITIES[mood]}"
     return [
         {"type": "text", "text": SYSTEM_STATIC + personality, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": f"Student context (live data):\n{student_context}"},
+        {"type": "text", "text": f"Student context (live data):\n{student_context}", "cache_control": {"type": "ephemeral"}},
     ]
 
 
@@ -266,7 +266,7 @@ def reply(user: Dict[str, Any], message: str, image_base64: str = None, image_me
     reply_text = ""
     actions = {}
 
-    for _ in range(5):  # max tool-call rounds
+    for _ in range(3):  # max tool-call rounds
         response = client.messages.create(
             model=MODEL,
             max_tokens=512,

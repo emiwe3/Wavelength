@@ -4,7 +4,7 @@ import ConnectButton from "./components/ConnectButton";
 import StatusCard from "./components/StatusCard";
 import "./App.css";
 
-const API = "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DEFAULT_STATUS = { phone: null, google: false, canvas: false, slack: false, slack_workspaces: [] };
 
 const ALL_SERVICES = [
@@ -45,40 +45,45 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  const fetchStatus = async () => {
+  const fetchStatus = async (phone) => {
     try {
       const { data } = await axios.get(`${API}/api/status`, { withCredentials: true });
-      if (data.phone) {
+      // Only use session status if it matches the phone we registered with
+      if (data.phone && data.phone === (phone || localStorage.getItem("wl_phone"))) {
         setStatus(data);
-        setRegistered(true);
-      } else {
-        // Session may have been lost across OAuth redirect — re-register from localStorage
-        const savedPhone = localStorage.getItem("wl_phone");
-        if (savedPhone) {
-          await axios.post(`${API}/api/register`, { phone: savedPhone }, { withCredentials: true });
-          const { data: data2 } = await axios.get(`${API}/api/status`, { withCredentials: true });
-          setStatus(data2);
-          if (data2.phone) setRegistered(true);
-        } else {
-          setStatus(data);
-        }
+      } else if (phone || localStorage.getItem("wl_phone")) {
+        // Re-register with our known phone to refresh status
+        const knownPhone = phone || localStorage.getItem("wl_phone");
+        await axios.post(`${API}/api/register`, { phone: knownPhone }, { withCredentials: true });
+        const { data: data2 } = await axios.get(`${API}/api/status`, { withCredentials: true });
+        setStatus(data2);
       }
     } catch {}
   };
 
   useEffect(() => {
-    fetchStatus();
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const error = params.get("error");
-    if (connected) {
-      showToast(`${connected.charAt(0).toUpperCase() + connected.slice(1)} connected!`);
+
+    if (connected || error) {
+      // Returning from OAuth — restore session from localStorage
+      const savedPhone = localStorage.getItem("wl_phone");
+      if (savedPhone) {
+        setRegistered(true);
+        fetchStatus(savedPhone);
+      }
+      if (connected) showToast(`${connected.charAt(0).toUpperCase() + connected.slice(1)} connected!`);
+      if (error) showToast(`Error: ${error}`, true);
       window.history.replaceState({}, "", "/");
-      fetchStatus();
-    }
-    if (error) {
-      showToast(`Error: ${error}`, true);
-      window.history.replaceState({}, "", "/");
+    } else {
+      // Fresh page load — only restore if we have a saved phone
+      const savedPhone = localStorage.getItem("wl_phone");
+      if (savedPhone) {
+        setRegistered(true);
+        fetchStatus(savedPhone);
+      }
+      // Otherwise show registration form (don't auto-restore from someone else's session)
     }
   }, []);
 
@@ -115,6 +120,8 @@ export default function App() {
     if (digits.length !== 10) return showToast("Enter a valid 10-digit US number", true);
     const e164 = `+1${digits}`;
     try {
+      localStorage.removeItem("wl_phone");
+      try { await axios.post(`${API}/api/logout`, {}, { withCredentials: true }); } catch {}
       await axios.post(`${API}/api/register`, { phone: e164 }, { withCredentials: true });
       localStorage.setItem("wl_phone", e164);
       setRegistered(true);
@@ -145,9 +152,10 @@ export default function App() {
     setCanvasError("");
     setCanvasLoading(true);
     try {
+      const savedPhone = localStorage.getItem("wl_phone") || status.phone;
       await axios.post(
         `${API}/api/canvas/token`,
-        { token: canvasToken, domain: canvasDomain },
+        { token: canvasToken, domain: canvasDomain, phone: savedPhone },
         { withCredentials: true }
       );
       showToast("Canvas connected!");
@@ -257,8 +265,8 @@ export default function App() {
                 service="Google"
                 connected={status.google}
                 onClick={() => {
-                  const svcs = googleServices.join(",");
-                  window.location.href = `${API}/auth/google/start?services=${svcs}`;
+                  const savedPhone = localStorage.getItem("wl_phone") || status.phone;
+                  window.location.href = `${API}/auth/google/start?phone=${encodeURIComponent(savedPhone)}`;
                 }}
               >
                 Connect Google Account
@@ -330,7 +338,10 @@ export default function App() {
               <ConnectButton
                 service="Slack"
                 connected={false}
-                onClick={() => { window.location.href = `${API}/auth/slack/start`; }}
+                onClick={() => {
+                  const savedPhone = localStorage.getItem("wl_phone") || status.phone;
+                  window.location.href = `${API}/auth/slack/start?phone=${encodeURIComponent(savedPhone)}`;
+                }}
               >
                 {status.slack_workspaces?.length > 0 ? "Add Another Workspace" : "Connect Slack Account"}
               </ConnectButton>

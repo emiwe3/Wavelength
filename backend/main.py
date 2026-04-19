@@ -1,8 +1,9 @@
 import os
 import httpx
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from db import init_db, upsert_user, get_user, add_slack_workspace, get_slack_workspaces
@@ -63,9 +64,6 @@ async def config():
 
 @app.post("/api/logout")
 async def logout(request: Request):
-    phone = request.session.get("phone")
-    if phone:
-        upsert_user(phone, gmail_credentials=None, canvas_token=None, slack_token=None, ical_url=None)
     request.session.clear()
     return {"ok": True}
 
@@ -89,8 +87,8 @@ async def status(request: Request):
 
 
 @app.get("/auth/google/start")
-async def google_start(request: Request):
-    phone = request.session.get("phone")
+async def google_start(request: Request, phone: str = None):
+    phone = phone or request.session.get("phone")
     if not phone:
         return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
     scopes = ["openid", "email", GMAIL_SCOPE, CALENDAR_SCOPE]
@@ -160,7 +158,7 @@ async def save_ical(request: Request):
 @app.post("/api/canvas/token")
 async def canvas_token(request: Request):
     data = await request.json()
-    phone = request.session.get("phone")
+    phone = data.get("phone") or request.session.get("phone")
     if not phone:
         return JSONResponse({"error": "Not registered"}, status_code=401)
     token = data.get("token", "").strip()
@@ -216,8 +214,8 @@ async def canvas_oauth_callback(request: Request, code: str = None, state: str =
 
 
 @app.get("/auth/slack/start")
-async def slack_start(request: Request):
-    phone = request.session.get("phone")
+async def slack_start(request: Request, phone: str = None):
+    phone = phone or request.session.get("phone")
     if not phone:
         return RedirectResponse(f"{FRONTEND_URL}?error=no_phone")
     from urllib.parse import urlencode
@@ -278,8 +276,19 @@ async def bot_message(request: Request):
 
     user = get_user(phone)
     if not user:
-        upsert_user(phone)
-        user = get_user(phone)
+        # Try normalized lookup: strip non-digits, add +1 prefix for US numbers
+        digits = "".join(c for c in phone if c.isdigit())
+        normalized = f"+1{digits[-10:]}" if len(digits) >= 10 else phone
+        if normalized != phone:
+            user = get_user(normalized)
+        if not user:
+            print(f"⚠️  New user from {phone} (normalized: {normalized}) — no credentials")
+            upsert_user(phone)
+            user = get_user(phone)
+        else:
+            print(f"ℹ️  Matched {phone} → {normalized}")
+            phone = normalized
+    print(f"📋 User {phone}: gmail={bool(user.get('gmail_credentials'))}, canvas={bool(user.get('canvas_token'))}, slack={bool(user.get('slack_token'))}, ical={bool(user.get('ical_url'))}")
     try:
         reply, actions = agent_mod.reply(user, text, image_base64=image_base64, image_media_type=image_media_type, audio_path=audio_path)
     except Exception as exc:
@@ -342,3 +351,13 @@ async def update_location_findmy(request: Request):
 
     upsert_user(row["phone"], current_lat=lat, current_lng=lng)
     return {"ok": True, "phone": row["phone"]}
+
+
+# Serve frontend build — must be last so API routes take priority
+_frontend = os.path.join(os.path.dirname(__file__), "../frontend/dist")
+if os.path.isdir(_frontend):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_frontend, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        return FileResponse(os.path.join(_frontend, "index.html"))
