@@ -10,6 +10,8 @@ Wavelength can connect to everything: Canvas assignments, Google Calendar, Gmail
 
 Additionally, Wavelength keeps you part of the campus community. Connect your university Slack workspaces and choose which channels to monitor. Club meetings, campus events, free food, etc. Wavelength surfaces all of it, not just deadlines, giving you updates, asking you about preferences, and keeping you up-to-date with the plans you want.
 
+Wavelength also includes several features like supporting scheduled reminders that make sure students stay on track with multiple platforms at a time. They can also send video messages that are automatically transcribed and make it easy to interact with their messages hands-free. For events and meetings, Wavelength generates direct location links through Google Maps and helps users quickly navigate across campus. Additionally, the system also does personality matching and recommendations to tailor itself to each user. 
+
 ## How We Built It
 
 On the front-end, we built **a React App** that asks the user to connect their phone number, Google, Canvas, and Slack Accounts to our assistant. On the back-end, we used the **Canvas, Google Cloud, and Slack APIs** to scrape information from the user's accounts; then **our Claude Agent** writes personalized messages based on this data, which are sent to the user through **Photon's iMessage API.**
