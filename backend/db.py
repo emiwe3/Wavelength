@@ -53,6 +53,8 @@ def init_db() -> None:
             "onboarding_step": "TEXT DEFAULT 'start'",
             "preferences": "TEXT DEFAULT '{}'",
             "reminders_sent": "TEXT DEFAULT '{}'",
+            "findmy_id": "TEXT",
+            "findmy_name": "TEXT",
         }
         migrations["slack_workspaces"] = "TEXT DEFAULT '[]'"
         migrations["current_lat"] = "REAL"

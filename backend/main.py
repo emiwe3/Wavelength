@@ -296,3 +296,49 @@ async def update_location(request: Request):
         return JSONResponse({"error": "phone, lat, lng required"}, status_code=400)
     upsert_user(phone, current_lat=lat, current_lng=lng)
     return {"ok": True}
+
+
+@app.post("/api/location/link")
+async def link_findmy(request: Request):
+    """Link a Find My friend name/id to a registered phone number."""
+    data = await request.json()
+    phone = data.get("phone", "").strip()
+    findmy_id = data.get("findmy_id", "").strip()
+    findmy_name = data.get("findmy_name", "").strip()
+    if not phone or (not findmy_id and not findmy_name):
+        return JSONResponse({"error": "phone and findmy_id or findmy_name required"}, status_code=400)
+    kwargs = {}
+    if findmy_id:
+        kwargs["findmy_id"] = findmy_id
+    if findmy_name:
+        kwargs["findmy_name"] = findmy_name
+    upsert_user(phone, **kwargs)
+    return {"ok": True}
+
+
+@app.post("/api/location/findmy")
+async def update_location_findmy(request: Request):
+    """Match a Find My friend to a registered user by findmy_id or name."""
+    data = await request.json()
+    findmy_id = data.get("findmy_id", "")
+    name = data.get("name", "")
+    lat = data.get("lat")
+    lng = data.get("lng")
+    if lat is None or lng is None:
+        return JSONResponse({"error": "lat and lng required"}, status_code=400)
+
+    from db import _connect
+    with _connect() as conn:
+        # Match by stored findmy_id first, then fall back to name
+        row = conn.execute(
+            "SELECT phone FROM users WHERE findmy_id = ?", (findmy_id,)
+        ).fetchone()
+        if not row and name:
+            row = conn.execute(
+                "SELECT phone FROM users WHERE findmy_name = ?", (name,)
+            ).fetchone()
+    if not row:
+        return JSONResponse({"error": "no matching user"}, status_code=404)
+
+    upsert_user(row["phone"], current_lat=lat, current_lng=lng)
+    return {"ok": True, "phone": row["phone"]}

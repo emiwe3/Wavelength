@@ -7,6 +7,7 @@ import anthropic
 
 import context as ctx_mod
 import calendar_write
+import maps as maps_mod
 import db as db_mod
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -21,16 +22,25 @@ calendar events, assignments, emails, and Slack announcements — which include 
 club meetings, campus events, social gatherings, and any other activity posted \
 in their university or club Slack channels. Surface ALL of it, not just deadlines.
 
-You can also add events to the student's Google Calendar using the create_calendar_event tool. \
-Use it whenever the student asks you to add, schedule, or remember something on their calendar. \
-Resolve relative dates like "tomorrow" or "next Friday" using the current date in the student context below. \
-Before calling the tool, you must have a specific date AND time from the student — do not guess or assume. \
-If either is missing, ask the student for the missing detail before creating the event.
+You can also add or delete events on the student's Google Calendar, give directions, and more.
 
-Tone: warm, direct, like a smart friend who actually knows their schedule. \
-No fluff, no filler. Be concise. Plain text only — no markdown, no bullet symbols, \
-no asterisks. Use line breaks to separate thoughts.\
+Plain text only — no markdown, no bullet symbols, no asterisks. Use line breaks to separate thoughts.
+
+PERSONALITY: Adapt your tone based on the student's current mood or request. \
+If they ask you to be kinder, more aggressive, more hype, more chill, more blunt, etc. — fully commit to it. \
+When the student sets a vibe, use the set_personality tool to remember it, then immediately adopt that tone. \
+Default tone: warm, direct, like a smart friend who actually knows their schedule.\
 """
+
+PERSONALITIES = {
+    "sad": "The student is feeling sad. Be extra warm, gentle, and emotionally supportive. Acknowledge their feelings before getting to business.",
+    "unmotivated": "The student is feeling unmotivated. Be energetic, hype them up, use motivational language, push them to get things done. Be a drill sergeant if needed.",
+    "stressed": "The student is stressed. Be calm, reassuring, and help them prioritize. Break things into small steps.",
+    "happy": "The student is in a great mood. Match their energy — be upbeat and fun.",
+    "focused": "The student wants to focus. Be super concise, no small talk, just the facts.",
+    "chill": "Keep it super casual and low-key. Short responses, relaxed vibe.",
+    "default": "Warm, direct, like a smart friend who actually knows their schedule.",
+}
 
 TOOLS = [
     {
@@ -70,7 +80,75 @@ TOOLS = [
             },
             "required": ["title", "date", "start_time"],
         },
-    }
+    },
+    {
+        "name": "set_personality",
+        "description": "Save the student's requested personality/mood so it persists across messages. Call this whenever the student asks you to change your tone, vibe, or energy (e.g. 'be more kind', 'hype me up', 'be aggressive', 'be chill').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mood": {
+                    "type": "string",
+                    "description": "A short label for the mood (e.g. 'sad', 'unmotivated', 'stressed', 'happy', 'focused', 'chill', or a custom description)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "A sentence describing how you should behave in this mode",
+                },
+            },
+            "required": ["mood", "description"],
+        },
+    },
+    {
+        "name": "delete_calendar_event",
+        "description": "Delete an event from the student's Google Calendar. First search for matching events, confirm with the student which one to delete, then delete it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "delete"],
+                    "description": "Use 'search' first to find matching events, then 'delete' with the event_id to remove it.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search term to find the event (for action=search)",
+                },
+                "event_id": {
+                    "type": "string",
+                    "description": "The event ID to delete (for action=delete)",
+                },
+                "event_title": {
+                    "type": "string",
+                    "description": "Title of the event being deleted, for confirmation message",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "get_directions",
+        "description": "Generate a Google Maps directions link to a destination. Use whenever the student asks about directions, how to get somewhere, where a place is, or how long it takes to get there.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "destination": {
+                    "type": "string",
+                    "description": "The destination address or place name",
+                },
+                "origin": {
+                    "type": "string",
+                    "description": "Optional origin address. Leave blank to use the user's current location.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["walking", "driving", "transit", "bicycling"],
+                    "description": "Travel mode. Default: walking.",
+                },
+            },
+            "required": ["destination"],
+        },
+    },
 ]
 
 _history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -99,9 +177,17 @@ def _get_context(user: Dict[str, Any]) -> str:
         return f"[Could not load student context: {exc}]"
 
 
-def _build_system(student_context: str) -> list:
+def _build_system(student_context: str, user: Dict[str, Any] = None) -> list:
+    personality = ""
+    if user:
+        mood = db_mod.get_preference(user["phone"], "personality_mood")
+        desc = db_mod.get_preference(user["phone"], "personality_desc")
+        if mood and desc:
+            personality = f"\nCURRENT MOOD/VIBE: {mood.upper()} — {desc}"
+        elif mood and mood in PERSONALITIES:
+            personality = f"\nCURRENT MOOD/VIBE: {mood.upper()} — {PERSONALITIES[mood]}"
     return [
-        {"type": "text", "text": SYSTEM_STATIC, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": SYSTEM_STATIC + personality, "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": f"Student context (live data):\n{student_context}"},
     ]
 
@@ -109,38 +195,44 @@ def _build_system(student_context: str) -> list:
 def reply(user: Dict[str, Any], message: str) -> str:
     phone = user["phone"]
     student_context = _get_context(user)
-    system = _build_system(student_context)
+    system = _build_system(student_context, user)
 
     _history[phone].append({"role": "user", "content": message})
     history = _history[phone][-MAX_HISTORY:]
 
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=512,
-        system=system,
-        messages=history,
-        tools=TOOLS,
-    )
+    messages = list(history)
+    reply_text = ""
 
-    if response.stop_reason == "tool_use":
-        tool_block = next(b for b in response.content if b.type == "tool_use")
-        tool_result = _run_tool(user, tool_block.name, tool_block.input)
-
-        followup = client.messages.create(
+    for _ in range(5):  # max tool-call rounds
+        response = client.messages.create(
             model=MODEL,
             max_tokens=512,
             system=system,
-            messages=history + [
-                {"role": "assistant", "content": response.content},
-                {"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": tool_block.id, "content": tool_result}
-                ]},
-            ],
+            messages=messages,
             tools=TOOLS,
         )
-        reply_text = followup.content[0].text.strip()
-    else:
-        reply_text = response.content[0].text.strip()
+
+        if response.stop_reason != "tool_use":
+            text_block = next((b for b in response.content if hasattr(b, "text")), None)
+            reply_text = text_block.text.strip() if text_block else ""
+            break
+
+        # Run ALL tool_use blocks and collect results
+        tool_results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+            result = _run_tool(user, block.name, block.input)
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": result,
+            })
+
+        messages = messages + [
+            {"role": "assistant", "content": response.content},
+            {"role": "user", "content": tool_results},
+        ]
 
     _history[phone].append({"role": "assistant", "content": reply_text})
     return reply_text
@@ -174,6 +266,51 @@ def _run_tool(user: Dict[str, Any], name: str, inputs: Dict[str, Any]) -> str:
             return f"Event created: {event['title']} — {event['start']} to {event['end']}"
         except Exception as exc:
             return f"Error creating event: {exc}"
+    if name == "set_personality":
+        mood = inputs.get("mood", "default")
+        description = inputs.get("description", "")
+        db_mod.set_preference(user["phone"], "personality_mood", mood)
+        db_mod.set_preference(user["phone"], "personality_desc", description)
+        return f"Personality set to '{mood}'. Adopt this tone immediately: {description}"
+
+    if name == "delete_calendar_event":
+        creds = user.get("gmail_credentials")
+        if not creds:
+            return "Error: no Google credentials found."
+        action = inputs.get("action")
+        if action == "search":
+            query = inputs.get("query", "")
+            events = calendar_write.find_events(creds, query)
+            if not events:
+                return f"No upcoming events found matching '{query}'."
+            lines = [f"Found {len(events)} event(s):"]
+            for e in events:
+                lines.append(f"- \"{e['title']}\" on {e['start']} (id: {e['id']})")
+            return "\n".join(lines)
+        elif action == "delete":
+            event_id = inputs.get("event_id", "")
+            title = inputs.get("event_title", "the event")
+            if not event_id:
+                return "Error: event_id required to delete."
+            try:
+                calendar_write.delete_event(creds, event_id)
+                return f"Deleted \"{title}\" from your calendar."
+            except Exception as e:
+                return f"Failed to delete event: {e}"
+
+    if name == "get_directions":
+        from urllib.parse import quote
+        destination = inputs["destination"]
+        origin = inputs.get("origin", "")
+        mode_map = {"driving": "driving", "walking": "walking", "transit": "transit", "bicycling": "bicycling"}
+        mode = mode_map.get(inputs.get("mode", "walking"), "walking")
+        dest_enc = quote(destination)
+        if origin:
+            url = f"https://www.google.com/maps/dir/?api=1&origin={quote(origin)}&destination={dest_enc}&travelmode={mode}"
+        else:
+            url = f"https://www.google.com/maps/dir/?api=1&destination={dest_enc}&travelmode={mode}"
+        return f"Google Maps link: {url}"
+
     return f"Unknown tool: {name}"
 
 
