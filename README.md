@@ -1,6 +1,6 @@
 ## Inspiration
 
-As busy students, we often find ourselves stressed and overwhelmed by seemingly never-ending deadlines and meetings. It feels impossible to streamline and keep track of information coming from all different directions: our inboxes, Slack workspaces, Canvas, Google Calendar, and more. Thus, we created Wavelength, an all-in-one personal assistant designed to help students keep up with their busy lives, alleviating the anxiety from merely trying to find where each piece of information is located.
+As busy students, we often find ourselves stressed and overwhelmed by seemingly never-ending deadlines and meetings. It feels impossible to streamline and keep track of information coming from all different directions: our inboxes, Slack workspaces, Canvas, Google Calendar, and more. As students, we are constantly inundated with competing demands: club meetings, office hours, study sessions, lectures, and more, all while maintaining friendships and carving out the personal time that keeps you sane. The mental overhead of tracking all of it, across five different platforms that never talk to each other, is its own kind of exhaustion. Thus, we created Wavelength, an all-in-one personal assistant designed to help students keep up with their busy lives, alleviating the anxiety from merely trying to find where each piece of information is located.
 
 ## What it does
 
@@ -18,9 +18,23 @@ Another issue we encountered was having to test many of the features blindly thr
 
 ## Accomplishments that we're proud of
 
+The aspect of our project we are most proud of is building something we genuinely need ourselves. This is the first time any of us has built a fully customized AI agent from the ground up, and we built it for the most relatable user we know: the overwhelmed college student.
+
+We're proud of building an agent that actually reasons -- wavelength doesn't just retrieve information; it decides what matters, when to reach out, and how urgent something is. It looks at your calendar, your assignments, your emails, and your Slack channels together, and makes a judgment call, giving you the peace of mind to focus on your studies, career, and the people that matter to you the most.
+
+We're also proud of the proactive architecture. Most AI tools wait to be asked, but wavelength texts you first, as the whole point is that you shouldn't have to remember to check. When something is due in an hour and you're across campus, it already knows, and it tells you exactly how long it'll take to get there.
+
+Learning how to use new tools such as the Photon SDK, integrating various APIs for our data channels, designing an efficient scraping method that only retrieves the most relevant information from our data channels, integrating a seamless experience for the user to sync their Google account, Slack, and Canvas, overcoming latency, integration, and caching challenges, and learning how to test through terminal scripting are all feats we are so proud of accomplishing. 
+
+Building this in a weekend reminded us that the best technology solves a problem you feel every single day. We built Wavelength because we needed it, and we’re proud to return the power for students to be in control of their schedules, academics, and campus involvement.
+
 ## What we learned
 
 There are many things we have learned from working on this project. One of which is how to integrate so many different APIs and data sources, such as Slack, Google Mail, Google Calendar, and Canvas. We learned the importance of latency, and how to use caches to reduce latency between messages sent by our agent. We also learned how to use the Photon SDK, and it was really interesting to see how our Macs can run as servers. We also learned how to design complex data processing pipelines, from scraping source data from our various channels to processing them into coherent responses that are sent to the user.
+
+In addition, we learned firsthand why latency kills user experience. Every message initially triggered live scrapes across all four data sources before Claude could even start generating a response. We solved this by building a context caching layer that serves a warm snapshot instantly while refreshing in the background -- a pattern borrowed from systems engineering that made the agent feel immediate instead of sluggish.
+
+We went deep on Claude's tool use API, designing a multi-turn agentic loop where the model decides mid-conversation whether to call external tools (like writing to Google Calendar), handle conflicts, request missing information from the user, and resume. Building reliable tool use required carefully engineered prompts, conflict detection logic, and graceful fallbacks.
 
 ## What's next for Wavelength
 
