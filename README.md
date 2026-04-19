@@ -1,3 +1,5 @@
+Youtube Video: https://www.youtube.com/watch?v=MJB4Xo9GJjs&time_continue=0&source_ve_path=MjM4NTE&embeds_referring_euri=https%3A%2F%2Fdevpost.com%2F
+
 ## Inspiration
 
 As busy students, we often find ourselves **stressed and overwhelmed by seemingly never-ending deadlines and meetings**. It feels impossible to streamline and keep track of information coming from all different directions: our inboxes, Slack workspaces, Canvas, Google Calendar, and more. From club meeting notifications to office hours, all while maintaining friendships and carving out the personal time that keeps us sane, the mental overhead of tracking everything across five different platforms that never talk to each other is its own kind of exhaustion. Things fall through the cracks. Events are missed. Assignments are either submitted late or scrambled at the last minute. Amidst the countless responsibilities, students need every opportunity to reduce the stress they already have. Thus, we created Wavelength, **an all-in-one personal assistant designed to help students keep up with their busy lives**, alleviating the anxiety from merely trying to find where each piece of information is located.
