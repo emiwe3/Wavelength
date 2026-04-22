@@ -1,4 +1,4 @@
-Youtube Video: https://www.youtube.com/watch?v=MJB4Xo9GJjs&time_continue=0&source_ve_path=MjM4NTE&embeds_referring_euri=https%3A%2F%2Fdevpost.com%2F
+Youtube Demo Video: https://www.youtube.com/watch?v=MJB4Xo9GJjs&time_continue=0&source_ve_path=MjM4NTE&embeds_referring_euri=https%3A%2F%2Fdevpost.com%2F
 
 ## Inspiration
 
